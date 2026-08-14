@@ -1,0 +1,6 @@
+# Local architecture and implementation planning.
+design.md
+todo.md
+
+# Rust build output.
+target/
