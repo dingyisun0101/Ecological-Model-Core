@@ -1,6 +1,6 @@
 [package]
 name = "ecological-model-core"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.97"
 description = "Shared ecological initial states, interactions, trajectory observation, and terminal products"
@@ -15,7 +15,7 @@ include = ["src/**/*.rs", "tests/**/*.rs", "README.md", "LICENSE"]
 
 [dependencies]
 physics_in_parallel = { version = "3.3.0", git = "https://github.com/dingyisun0101/Physics-in-Parallel.git", rev = "704f797" }
-scientific-workflow = { path = "../workflow/rust", version = "0.5.0" }
+scientific-workflow = { path = "../workflow/rust", version = "0.6.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
