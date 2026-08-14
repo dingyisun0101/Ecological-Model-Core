@@ -21,6 +21,10 @@ abundance slices, so continuous and lattice models retain their native state
 representations and only copy the bounded samples the selected observer mode
 needs.
 
+The crate never reads or resolves Workflow task configuration. Callers provide
+ordinary resolved values (`Vec`, slices, `PathBuf`, recipes, and descriptors);
+an orchestrator or example owns configuration decoding and path-key resolution.
+
 ```rust
 use ecological_model_core::trajectory::{
     TerminalPolicy, TrajectoryObservationPolicy, TrajectoryObserver,

@@ -11,7 +11,6 @@ use scientific_workflow::artifact::{
     ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError,
     load_verified_artifact, persist_artifact,
 };
-use scientific_workflow::configuration::{ConfigurationError, TaskConfig};
 use scientific_workflow::execution::ExecutionScope;
 use scientific_workflow::rng_record::{RngRecord, RngRecordError};
 use serde::{Deserialize, Serialize};
@@ -31,13 +30,13 @@ pub type TaxonCounts = Vec<usize>;
 pub enum DistributionSource {
     Uniform,
     Inline { weights: Vec<f64> },
-    Json { path_key: String },
+    Json { path: PathBuf },
 }
 
 impl DistributionSource {
-    pub fn path_key(&self) -> Option<&str> {
+    pub fn path(&self) -> Option<&Path> {
         match self {
-            Self::Json { path_key } => Some(path_key),
+            Self::Json { path } => Some(path),
             Self::Uniform | Self::Inline { .. } => None,
         }
     }
@@ -46,29 +45,23 @@ impl DistributionSource {
         match self {
             Self::Uniform => Ok(()),
             Self::Inline { weights } => validate_distribution(weights, num_taxa),
-            Self::Json { path_key } => validate_path_key(path_key),
+            Self::Json { path } if path.as_os_str().is_empty() => Err(InitialStateError::EmptyPath),
+            Self::Json { .. } => Ok(()),
         }
     }
 
-    fn resolve(
-        self,
-        num_taxa: usize,
-        resolved_path: Option<&Path>,
-    ) -> Result<Option<Vec<f64>>, InitialStateError> {
+    fn resolve(self, num_taxa: usize) -> Result<Option<Vec<f64>>, InitialStateError> {
         let weights = match self {
             Self::Uniform => return Ok(None),
             Self::Inline { weights } => weights,
-            Self::Json { .. } => {
-                let path = resolved_path.ok_or(InitialStateError::MissingResolvedPath)?;
-                let bytes = fs::read(path).map_err(|source| InitialStateError::Io {
+            Self::Json { path } => {
+                let bytes = fs::read(&path).map_err(|source| InitialStateError::Io {
                     operation: "read distribution",
-                    path: path.to_path_buf(),
+                    path: path.clone(),
                     source,
                 })?;
-                serde_json::from_slice(&bytes).map_err(|source| InitialStateError::Json {
-                    path: path.to_path_buf(),
-                    source,
-                })?
+                serde_json::from_slice(&bytes)
+                    .map_err(|source| InitialStateError::Json { path, source })?
             }
         };
         validate_distribution(&weights, num_taxa)?;
@@ -117,11 +110,11 @@ impl InitialStateRecipe {
         }
     }
 
-    pub fn path_key(&self) -> Option<&str> {
+    pub fn distribution_path(&self) -> Option<&Path> {
         match self {
             Self::Random { distribution, .. }
             | Self::CenteredSeed { distribution, .. }
-            | Self::CenteredDominantSeed { distribution, .. } => distribution.path_key(),
+            | Self::CenteredDominantSeed { distribution, .. } => distribution.path(),
         }
     }
 
@@ -159,7 +152,6 @@ impl InitialStateRecipe {
         self,
         lattice: SquareLatticeConfig,
         num_taxa: usize,
-        resolved_path: Option<&Path>,
     ) -> Result<InitialState, InitialStateError> {
         self.validate(&lattice, num_taxa)?;
         let method = self.method();
@@ -183,7 +175,7 @@ impl InitialStateRecipe {
                 rng,
             } => (distribution, rng, None, Some(seed_radius), true),
         };
-        let mut weights = distribution.resolve(num_taxa, resolved_path)?;
+        let mut weights = distribution.resolve(num_taxa)?;
         let seed_taxon = if dominant {
             let background = weights.get_or_insert_with(|| vec![1.0; num_taxa]);
             Some(remove_dominant_taxon(background)?)
@@ -223,7 +215,7 @@ pub enum InitialStateSource {
         recipe: InitialStateRecipe,
     },
     VerifiedArtifact {
-        execution_directory_path_key: String,
+        execution_directory: PathBuf,
         descriptor: InitialStateArtifactDescriptor,
     },
 }
@@ -237,10 +229,12 @@ impl InitialStateSource {
         match self {
             Self::Recipe { recipe } => recipe.validate(lattice, num_taxa),
             Self::VerifiedArtifact {
-                execution_directory_path_key,
+                execution_directory,
                 descriptor,
             } => {
-                validate_path_key(execution_directory_path_key)?;
+                if execution_directory.as_os_str().is_empty() {
+                    return Err(InitialStateError::EmptyPath);
+                }
                 if descriptor.lattice() != lattice {
                     return Err(InitialStateError::LatticeMismatch);
                 }
@@ -257,26 +251,16 @@ impl InitialStateSource {
 
     pub fn resolve(
         &self,
-        task: &TaskConfig,
         lattice: SquareLatticeConfig,
         num_taxa: usize,
     ) -> Result<InitialState, InitialStateError> {
         self.validate(&lattice, num_taxa)?;
         match self {
-            Self::Recipe { recipe } => {
-                let path = recipe
-                    .path_key()
-                    .map(|key| task.resolve_path(key))
-                    .transpose()?;
-                recipe.clone().create(lattice, num_taxa, path.as_deref())
-            }
+            Self::Recipe { recipe } => recipe.clone().create(lattice, num_taxa),
             Self::VerifiedArtifact {
-                execution_directory_path_key,
+                execution_directory,
                 descriptor,
-            } => load_verified_initial_state(
-                task.resolve_path(execution_directory_path_key)?,
-                descriptor,
-            ),
+            } => load_verified_initial_state(execution_directory, descriptor),
         }
     }
 }
@@ -577,14 +561,6 @@ fn count_taxa(space: &CategoricalSpace, num_taxa: usize) -> Result<TaxonCounts, 
     Ok(counts)
 }
 
-fn validate_path_key(path_key: &str) -> Result<(), InitialStateError> {
-    if path_key.trim().is_empty() {
-        Err(InitialStateError::EmptyPathKey)
-    } else {
-        Ok(())
-    }
-}
-
 fn validate_seed(
     lattice: &SquareLatticeConfig,
     num_taxa: usize,
@@ -674,10 +650,8 @@ pub enum InitialStateError {
         width: usize,
         length: usize,
     },
-    #[error("path key must not be empty")]
-    EmptyPathKey,
-    #[error("recipe requires a resolved path")]
-    MissingResolvedPath,
+    #[error("path must not be empty")]
+    EmptyPath,
     #[error("initial-state format `{actual}` is unsupported")]
     UnsupportedFormat { actual: String },
     #[error("initial state declares {actual} taxa, expected {expected}")]
@@ -717,6 +691,4 @@ pub enum InitialStateError {
     Artifact(#[from] ArtifactError),
     #[error(transparent)]
     ArtifactLoad(#[from] ArtifactLoadError),
-    #[error(transparent)]
-    Configuration(#[from] ConfigurationError),
 }

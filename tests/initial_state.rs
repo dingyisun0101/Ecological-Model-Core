@@ -18,8 +18,8 @@ fn recipe_is_reproducible_and_counts_are_exact() {
         seed_radius: 1,
         rng: RngConfig::new(Some(42), None, None),
     };
-    let first = recipe.clone().create(lattice.clone(), 2, None).unwrap();
-    let second = recipe.create(lattice, 2, None).unwrap();
+    let first = recipe.clone().create(lattice.clone(), 2).unwrap();
+    let second = recipe.create(lattice, 2).unwrap();
     assert_eq!(first.space().data(), second.space().data());
     assert_eq!(first.counts().iter().sum::<usize>(), 81);
     assert_eq!(first.method(), InitializationMethod::CenteredSeed);
@@ -35,7 +35,7 @@ fn dominant_recipe_uses_first_maximal_taxon() {
         seed_radius: 1,
         rng: RngConfig::new(Some(7), None, None),
     }
-    .create(SquareLatticeConfig::periodic(&[9]), 3, None)
+    .create(SquareLatticeConfig::periodic(&[9]), 3)
     .unwrap();
     assert_eq!(state.seed_taxon(), Some(0));
     assert_eq!(state.counts()[0], 3);
@@ -49,7 +49,7 @@ fn verified_artifact_round_trip_is_exact() {
         distribution: DistributionSource::Uniform,
         rng: RngConfig::new(Some(903), None, None),
     }
-    .create(SquareLatticeConfig::periodic(&[8]), 2, None)
+    .create(SquareLatticeConfig::periodic(&[8]), 2)
     .unwrap();
     let persisted = persist_initial_state(&scope, &state).unwrap();
     assert_eq!(persisted.disposition(), ArtifactDisposition::Created);
