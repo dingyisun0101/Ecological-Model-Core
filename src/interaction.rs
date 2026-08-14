@@ -4,8 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use physics_in_parallel::math::prelude::{DenseMatrix, MatrixError};
-use physics_in_parallel::rng::{IndexedRng, RngConfig, RngConfigError};
+use physics_in_parallel::math::prelude::{
+    DenseMatrix, MatrixError, RandType, TensorRandError, TensorRandFiller,
+};
+use physics_in_parallel::rng::{RngConfig, RngConfigError};
 use scientific_workflow::artifact::{
     ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError,
     load_verified_artifact, persist_artifact,
@@ -20,7 +22,7 @@ pub const INTERACTION_MATRIX_FORMAT: &str = "ecological.interaction-matrix.v1";
 pub const INTERACTION_MATRIX_METADATA_KEY: &str = "interaction_matrix";
 pub const INTERACTION_GENERATOR_RNG_NAMESPACE: &str = "ecological_model_core.interaction_matrix";
 pub const INTERACTION_GENERATOR_IDENTITY: &str = "ecological_model_core.interaction_matrix";
-pub const INTERACTION_GENERATOR_VERSION: &str = "1";
+pub const INTERACTION_GENERATOR_VERSION: &str = "2";
 
 const DOMAIN_CONNECTANCE: u64 = 0x5c1a_9f20_f678_314d;
 const DOMAIN_FIRST_NORMAL: u64 = 0x9841_d60a_334b_c8e7;
@@ -186,8 +188,40 @@ impl InteractionMatrixRecipe {
 
     pub fn generate(&self, species: usize) -> Result<InteractionMatrix, InteractionRecipeError> {
         self.validate(species)?;
-        let rng = IndexedRng::new(self.rng())?;
-        let resolved_recipe = self.with_rng(rng.rng_config());
+        let mut filler = TensorRandFiller::try_new_indexed(
+            RandType::Normal {
+                mean: 0.0,
+                std: 1.0,
+            },
+            self.rng(),
+        )?;
+        let resolved_recipe = self.with_rng(filler.rng_config());
+        let matrix_len = species * species;
+        let mut first_normal = vec![0.0; matrix_len];
+        let mut second_normal = vec![0.0; matrix_len];
+        let mut connection_uniform = vec![0.0; matrix_len];
+        let first_domain = if matches!(self, Self::AntisymmetricGaussian { .. }) {
+            species as u64
+        } else {
+            DOMAIN_FIRST_NORMAL ^ species as u64
+        };
+        filler.try_fill_slice_at_layout(&mut first_normal, species, 0, first_domain)?;
+        filler.try_fill_slice_at_layout(
+            &mut second_normal,
+            species,
+            0,
+            DOMAIN_SECOND_NORMAL ^ species as u64,
+        )?;
+        filler.set_kind(RandType::Uniform {
+            low: 0.0,
+            high: 1.0,
+        });
+        filler.try_fill_slice_at_layout(
+            &mut connection_uniform,
+            species,
+            0,
+            DOMAIN_CONNECTANCE ^ species as u64,
+        )?;
         let mut values = vec![0.0; species * species];
         match &resolved_recipe {
             Self::AntisymmetricGaussian {
@@ -198,12 +232,7 @@ impl InteractionMatrixRecipe {
                 let divisor = normalization.divisor(species);
                 for row in 0..species {
                     for column in (row + 1)..species {
-                        // Preserve Dispatcher's established realization exactly: its indexed
-                        // coordinates are `(0, species, row, column)`.
-                        let value =
-                            rng.standard_normal(0, species as u64, row as u64, column as u64)
-                                * scale
-                                / divisor;
+                        let value = first_normal[row * species + column] * scale / divisor;
                         values[row * species + column] = value;
                         values[column * species + row] = -value;
                     }
@@ -222,10 +251,10 @@ impl InteractionMatrixRecipe {
                     for column in 0..species {
                         values[row * species + column] = if row == column {
                             diagonal.value()
-                        } else if connected(rng, species, row, column, *connectance, false) {
-                            (mean
-                                + standard_deviation
-                                    * normal(rng, DOMAIN_FIRST_NORMAL, species, row, column, 0))
+                        } else if *connectance >= 1.0
+                            || connection_uniform[row * species + column] < *connectance
+                        {
+                            (mean + standard_deviation * first_normal[row * species + column])
                                 / divisor
                         } else {
                             0.0
@@ -247,11 +276,12 @@ impl InteractionMatrixRecipe {
                 let independent_weight = (1.0 - reciprocal_correlation.powi(2)).sqrt();
                 for row in 0..species {
                     for column in (row + 1)..species {
-                        if !connected(rng, species, row, column, *connectance, true) {
+                        let index = row * species + column;
+                        if *connectance < 1.0 && connection_uniform[index] >= *connectance {
                             continue;
                         }
-                        let first = normal(rng, DOMAIN_FIRST_NORMAL, species, row, column, 0);
-                        let second = normal(rng, DOMAIN_SECOND_NORMAL, species, row, column, 1);
+                        let first = first_normal[index];
+                        let second = second_normal[index];
                         values[row * species + column] =
                             (mean + standard_deviation * first) / divisor;
                         values[column * species + row] = (mean
@@ -273,14 +303,12 @@ impl InteractionMatrixRecipe {
                 let magnitude = scale / normalization.divisor(species);
                 for row in 0..species {
                     for column in (row + 1)..species {
-                        if !connected(rng, species, row, column, *connectance, true) {
+                        let index = row * species + column;
+                        if *connectance < 1.0 && connection_uniform[index] >= *connectance {
                             continue;
                         }
-                        let first = normal(rng, DOMAIN_FIRST_NORMAL, species, row, column, 0).abs()
-                            * magnitude;
-                        let second = normal(rng, DOMAIN_SECOND_NORMAL, species, row, column, 1)
-                            .abs()
-                            * magnitude;
+                        let first = first_normal[index].abs() * magnitude;
+                        let second = second_normal[index].abs() * magnitude;
                         let (forward, reverse) = match structure {
                             SignStructure::Competition => (-first, -second),
                             SignStructure::Mutualism => (first, second),
@@ -296,7 +324,7 @@ impl InteractionMatrixRecipe {
             INTERACTION_GENERATOR_IDENTITY,
             INTERACTION_GENERATOR_VERSION,
             serde_json::to_value(&resolved_recipe)?,
-            Some(rng.rng_config()),
+            Some(filler.rng_config()),
         )?;
         Ok(InteractionMatrix::from_generated(
             DenseMatrix::try_from_vec(species, species, values)?,
@@ -330,47 +358,6 @@ fn fill_diagonal(values: &mut [f64], species: usize, diagonal: f64) {
     for index in 0..species {
         values[index * species + index] = diagonal;
     }
-}
-
-fn normal(
-    rng: IndexedRng,
-    domain: u64,
-    species: usize,
-    row: usize,
-    column: usize,
-    component: u64,
-) -> f64 {
-    rng.standard_normal(
-        0,
-        domain ^ species as u64,
-        row as u64,
-        (column as u64) ^ component,
-    )
-}
-
-fn connected(
-    rng: IndexedRng,
-    species: usize,
-    row: usize,
-    column: usize,
-    connectance: f64,
-    unordered: bool,
-) -> bool {
-    if connectance >= 1.0 {
-        return true;
-    }
-    let (row, column) = if unordered && row > column {
-        (column, row)
-    } else {
-        (row, column)
-    };
-    rng.unit_f64(
-        0,
-        DOMAIN_CONNECTANCE ^ species as u64,
-        row as u64,
-        column as u64,
-        0,
-    ) < connectance
 }
 
 fn require_finite(name: &'static str, value: f64) -> Result<(), InteractionRecipeError> {
@@ -781,6 +768,8 @@ pub enum InteractionRecipeError {
     InvalidParameter { name: &'static str, value: f64 },
     #[error(transparent)]
     Rng(#[from] RngConfigError),
+    #[error(transparent)]
+    TensorRand(#[from] TensorRandError),
     #[error(transparent)]
     Matrix(#[from] MatrixError),
     #[error(transparent)]
