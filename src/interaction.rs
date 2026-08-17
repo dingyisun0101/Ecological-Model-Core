@@ -49,13 +49,16 @@ impl MatrixNormalization {
 pub enum DiagonalPolicy {
     Zero,
     Constant(f64),
+    /// Sample diagonal entries from the Gaussian distribution of the recipe.
+    Sampled,
 }
 
 impl DiagonalPolicy {
-    fn value(self) -> f64 {
+    fn fixed_value(self) -> Option<f64> {
         match self {
-            Self::Zero => 0.0,
-            Self::Constant(value) => value,
+            Self::Zero => Some(0.0),
+            Self::Constant(value) => Some(value),
+            Self::Sampled => None,
         }
     }
 }
@@ -158,7 +161,9 @@ impl InteractionMatrixRecipe {
                 require_finite("mean", *mean)?;
                 require_nonnegative_finite("standard_deviation", *standard_deviation)?;
                 require_probability(*connectance)?;
-                require_finite("diagonal", diagonal.value())?;
+                if let Some(value) = diagonal.fixed_value() {
+                    require_finite("diagonal", value)?;
+                }
             }
             Self::SignStructuredGaussian {
                 scale,
@@ -168,7 +173,12 @@ impl InteractionMatrixRecipe {
             } => {
                 require_nonnegative_finite("scale", *scale)?;
                 require_probability(*connectance)?;
-                require_finite("diagonal", diagonal.value())?;
+                let value = diagonal.fixed_value().ok_or(
+                    InteractionRecipeError::SampledDiagonalUnsupported {
+                        family: "sign_structured_gaussian",
+                    },
+                )?;
+                require_finite("diagonal", value)?;
             }
         }
         if let Self::CorrelatedGaussian {
@@ -250,7 +260,10 @@ impl InteractionMatrixRecipe {
                 for row in 0..species {
                     for column in 0..species {
                         values[row * species + column] = if row == column {
-                            diagonal.value()
+                            diagonal.fixed_value().unwrap_or_else(|| {
+                                (mean + standard_deviation * first_normal[row * species + column])
+                                    / divisor
+                            })
                         } else if *connectance >= 1.0
                             || connection_uniform[row * species + column] < *connectance
                         {
@@ -271,8 +284,13 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                fill_diagonal(&mut values, species, diagonal.value());
                 let divisor = normalization.divisor(species);
+                for index in 0..species {
+                    values[index * species + index] = diagonal.fixed_value().unwrap_or_else(|| {
+                        (mean + standard_deviation * first_normal[index * species + index])
+                            / divisor
+                    });
+                }
                 let independent_weight = (1.0 - reciprocal_correlation.powi(2)).sqrt();
                 for row in 0..species {
                     for column in (row + 1)..species {
@@ -299,7 +317,13 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                fill_diagonal(&mut values, species, diagonal.value());
+                fill_diagonal(
+                    &mut values,
+                    species,
+                    diagonal
+                        .fixed_value()
+                        .expect("sampled diagonal rejected during validation"),
+                );
                 let magnitude = scale / normalization.divisor(species);
                 for row in 0..species {
                     for column in (row + 1)..species {
@@ -505,6 +529,18 @@ impl InteractionMatrix {
     }
     pub const fn provenance(&self) -> &InteractionProvenance {
         &self.provenance
+    }
+    /// Return `(A - A^T) / 2` from this exact matrix realization.
+    pub fn antisymmetrized(&self) -> Result<Self, InteractionMatrixError> {
+        let species = self.species();
+        let mut values = Vec::with_capacity(species * species);
+        for row in 0..species {
+            for column in 0..species {
+                values.push((self.coefficient(row, column) - self.coefficient(column, row)) / 2.0);
+            }
+        }
+        let values = DenseMatrix::try_from_vec(species, species, values)?;
+        Self::from_labeled_matrix(values, species, "(A - A^T) / 2")
     }
     pub fn generator_rng_record(&self) -> Result<Option<RngRecord>, RngRecordError> {
         self.provenance.generator_rng_record()
@@ -766,6 +802,8 @@ pub enum InteractionRecipeError {
     EmptySpecies,
     #[error("interaction recipe parameter {name} is invalid: {value}")]
     InvalidParameter { name: &'static str, value: f64 },
+    #[error("interaction family {family} does not support sampled diagonal entries")]
+    SampledDiagonalUnsupported { family: &'static str },
     #[error(transparent)]
     Rng(#[from] RngConfigError),
     #[error(transparent)]

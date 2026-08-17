@@ -1,5 +1,5 @@
 use ecological_model_core::interaction::{
-    InteractionMatrixRecipe, MatrixNormalization, SignStructure,
+    DiagonalPolicy, InteractionMatrixRecipe, MatrixNormalization, SignStructure,
 };
 use physics_in_parallel::rng::{IndexedRng, RngConfig};
 use scientific_workflow::execution::ExecutionScope;
@@ -22,6 +22,37 @@ fn antisymmetric_recipe_matches_dispatcher_coordinates_exactly() {
                 rng.standard_normal(0, 7, row as u64, column as u64) * 2.0 / (7.0_f64).sqrt();
             assert_eq!(matrix.coefficient(row, column), expected);
             assert_eq!(matrix.coefficient(column, row), -expected);
+        }
+    }
+}
+
+#[test]
+fn fully_sampled_gaussian_can_be_antisymmetrized_from_the_same_realization() {
+    let species = 6;
+    let source = InteractionMatrixRecipe::IndependentGaussian {
+        mean: 0.0,
+        standard_deviation: 1.0,
+        connectance: 1.0,
+        diagonal: DiagonalPolicy::Sampled,
+        normalization: MatrixNormalization::None,
+        rng: RngConfig::new(Some(29), None, None),
+    }
+    .generate(species)
+    .unwrap();
+    assert!((0..species).any(|index| source.coefficient(index, index) != 0.0));
+
+    let antisymmetric = source.antisymmetrized().unwrap();
+    for row in 0..species {
+        assert_eq!(antisymmetric.coefficient(row, row), 0.0);
+        for column in 0..species {
+            assert_eq!(
+                antisymmetric.coefficient(row, column),
+                (source.coefficient(row, column) - source.coefficient(column, row)) / 2.0
+            );
+            assert_eq!(
+                antisymmetric.coefficient(row, column),
+                -antisymmetric.coefficient(column, row)
+            );
         }
     }
 }
