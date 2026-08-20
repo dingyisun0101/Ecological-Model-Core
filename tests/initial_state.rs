@@ -16,7 +16,7 @@ fn recipe_is_reproducible_and_counts_are_exact() {
         },
         seed_taxon: 1,
         seed_radius: 1,
-        rng: RngConfig::new(Some(42), None, None),
+        rng: RngConfig::new(Some(42), None),
     };
     let first = recipe.clone().create(lattice.clone(), 2).unwrap();
     let second = recipe.create(lattice, 2).unwrap();
@@ -33,7 +33,7 @@ fn dominant_recipe_uses_first_maximal_taxon() {
             weights: vec![0.4, 0.4, 0.2],
         },
         seed_radius: 1,
-        rng: RngConfig::new(Some(7), None, None),
+        rng: RngConfig::new(Some(7), None),
     }
     .create(SquareLatticeConfig::periodic(&[9]), 3)
     .unwrap();
@@ -47,7 +47,7 @@ fn verified_artifact_round_trip_is_exact() {
     let scope = ExecutionScope::create_named(directory.path(), "execution").unwrap();
     let state = InitialStateRecipe::Random {
         distribution: DistributionSource::Uniform,
-        rng: RngConfig::new(Some(903), None, None),
+        rng: RngConfig::new(Some(903), None),
     }
     .create(SquareLatticeConfig::periodic(&[8]), 2)
     .unwrap();

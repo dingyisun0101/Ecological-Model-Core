@@ -8,8 +8,8 @@ The public modules are:
 
 - `initial_state`: reproducible categorical lattice initial states and verified
   Workflow artifacts;
-- `interaction`: validated ecological interaction matrices, including the exact
-  antisymmetric Gaussian family used by Dispatcher;
+- `interaction`: validated ecological interaction matrices, reproducible random
+  sources, and composable PiP-backed transformations;
 - `trajectory`: a bounded, allocation-conscious trajectory observer with
   disabled, terminal-only, and detection modes;
 - `terminal_state`: validated terminal composition and auditable equilibrium,
@@ -24,6 +24,26 @@ needs.
 The crate never reads or resolves Workflow task configuration. Callers provide
 ordinary resolved values (`Vec`, slices, `PathBuf`, recipes, and descriptors);
 an orchestrator or example owns configuration decoding and path-key resolution.
+
+Interaction matrices are sampled before model-specific transformations are
+applied. Every entry of `RandomUniform` and `RandomGaussian`, including the
+diagonal, is sampled independently. Transformations return new matrices, leave
+their sources unchanged, and retain a complete derived-provenance chain:
+
+```rust
+use ecological_model_core::interaction::{InteractionMatrix, InteractionMatrixRecipe};
+use physics_in_parallel::rng::RngConfig;
+
+let recipe = InteractionMatrixRecipe::RandomGaussian {
+    mean: 0.0,
+    standard_deviation: 1.0,
+    rng: RngConfig::new(Some(42), None),
+};
+let lattice = InteractionMatrix::generate(8, &recipe)?;
+let glv = lattice.antisymmetrize()?.scale(0.5)?.normalize(1.0)?;
+assert!(glv.values().max_abs_real() <= 1.0);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 ```rust
 use ecological_model_core::trajectory::{
