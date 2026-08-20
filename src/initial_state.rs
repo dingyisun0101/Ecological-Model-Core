@@ -493,10 +493,7 @@ fn rng_record_from_space(space: &CategoricalSpace) -> Result<RngRecord, InitialS
     let key = config
         .encode_seed()
         .ok_or(InitialStateError::MissingResolvedRngConfig)?;
-    let mut parameters = Map::new();
-    if let Some(streams) = config.parallel_streams() {
-        parameters.insert("parallel_streams".to_owned(), Value::from(streams.get()));
-    }
+    let parameters = Map::new();
     Ok(RngRecord::new(
         INITIALIZATION_RNG_NAMESPACE,
         method.name(),
