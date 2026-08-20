@@ -569,6 +569,57 @@ impl InteractionMatrix {
         )
     }
 
+    /// Return the elementwise absolute value of this matrix.
+    pub fn abs(&self) -> Result<Self, InteractionMatrixError> {
+        self.derive(self.values.abs(), InteractionTransformation::Abs)
+    }
+
+    /// Raise every entry below `minimum` to that finite lower bound.
+    pub fn clamp_min(&self, minimum: f64) -> Result<Self, InteractionMatrixError> {
+        require_finite_transform("minimum", minimum)?;
+        let rows = self.values.rows();
+        let columns = self.values.cols();
+        self.derive(
+            DenseMatrix::from_fn(rows, columns, |row, column| {
+                self.values.get(row as isize, column as isize).max(minimum)
+            }),
+            InteractionTransformation::ClampMin { minimum },
+        )
+    }
+
+    /// Lower every entry above `maximum` to that finite upper bound.
+    pub fn clamp_max(&self, maximum: f64) -> Result<Self, InteractionMatrixError> {
+        require_finite_transform("maximum", maximum)?;
+        let rows = self.values.rows();
+        let columns = self.values.cols();
+        self.derive(
+            DenseMatrix::from_fn(rows, columns, |row, column| {
+                self.values.get(row as isize, column as isize).min(maximum)
+            }),
+            InteractionTransformation::ClampMax { maximum },
+        )
+    }
+
+    /// Require every absolute entry to be at most `threshold`.
+    ///
+    /// The maximum is reduced by PiP's backend-native parallel implementation.
+    pub fn ensure_max_abs_at_most(&self, threshold: f64) -> Result<(), InteractionMatrixError> {
+        if !threshold.is_finite() || threshold < 0.0 {
+            return Err(InteractionMatrixError::InvalidTransformationParameter {
+                name: "threshold",
+                value: threshold,
+            });
+        }
+        let maximum = self.values.max_abs_real();
+        if maximum > threshold {
+            return Err(InteractionMatrixError::MaximumAbsoluteEntryExceeded {
+                threshold,
+                maximum,
+            });
+        }
+        Ok(())
+    }
+
     /// Scale down uniformly until every absolute entry is at most `threshold`.
     ///
     /// A matrix already within the threshold is not enlarged.
@@ -691,8 +742,15 @@ pub enum InteractionSourceKind {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InteractionTransformation {
     Antisymmetrize,
+    Abs,
     Scale {
         scalar: f64,
+    },
+    ClampMin {
+        minimum: f64,
+    },
+    ClampMax {
+        maximum: f64,
     },
     Normalize {
         threshold: f64,
@@ -950,6 +1008,8 @@ pub enum InteractionMatrixError {
     },
     #[error("interaction matrix transformation parameter {name} is invalid: {value}")]
     InvalidTransformationParameter { name: &'static str, value: f64 },
+    #[error("interaction matrix maximum absolute entry {maximum} exceeds threshold {threshold}")]
+    MaximumAbsoluteEntryExceeded { threshold: f64, maximum: f64 },
     #[error("interaction matrix label must not be empty")]
     EmptyLabel,
     #[error("failed to read interaction matrix at `{path}`")]

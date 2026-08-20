@@ -39,11 +39,18 @@ let recipe = InteractionMatrixRecipe::RandomGaussian {
     standard_deviation: 1.0,
     rng: RngConfig::new(Some(42), None),
 };
-let lattice = InteractionMatrix::generate(8, &recipe)?;
-let glv = lattice.antisymmetrize()?.scale(0.5)?.normalize(1.0)?;
-assert!(glv.values().max_abs_real() <= 1.0);
+let lattice = InteractionMatrix::generate(8, &recipe)?
+    .scale(0.5)?
+    .abs()?;
+lattice.ensure_max_abs_at_most(1.0)?;
+let glv = lattice.antisymmetrize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
+
+`abs` applies elementwise absolute value. `clamp_min` and `clamp_max` provide
+independent finite lower and upper bounds. `ensure_max_abs_at_most` validates
+a bound without changing the matrix, which is useful when exceeding the
+threshold should be an error.
 
 ```rust
 use ecological_model_core::trajectory::{
