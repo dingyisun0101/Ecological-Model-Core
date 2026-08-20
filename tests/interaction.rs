@@ -71,6 +71,31 @@ fn transformations_compose_pip_matrix_operations_without_mutating_source() {
     let scaled = antisymmetric.scale(2.0).unwrap();
     assert_eq!(scaled.coefficient(0, 1), 12.0);
 
+    let absolute = scaled.abs().unwrap();
+    assert_eq!(absolute.coefficient(0, 1), 12.0);
+    assert_eq!(absolute.coefficient(1, 0), 12.0);
+    assert_eq!(scaled.coefficient(1, 0), -12.0);
+
+    let lower_clamped = scaled.clamp_min(0.0).unwrap();
+    assert_eq!(lower_clamped.coefficient(0, 0), 0.0);
+    assert_eq!(lower_clamped.coefficient(0, 1), 12.0);
+    assert_eq!(lower_clamped.coefficient(1, 0), 0.0);
+    assert_eq!(scaled.coefficient(1, 0), -12.0);
+
+    let clamped = lower_clamped.clamp_max(10.0).unwrap();
+    assert_eq!(clamped.coefficient(0, 0), 0.0);
+    assert_eq!(clamped.coefficient(0, 1), 10.0);
+    assert_eq!(clamped.coefficient(1, 0), 0.0);
+    assert_eq!(lower_clamped.coefficient(0, 1), 12.0);
+    assert!(clamped.ensure_max_abs_at_most(10.0).is_ok());
+    assert!(matches!(
+        lower_clamped.ensure_max_abs_at_most(11.0),
+        Err(ecological_model_core::interaction::InteractionMatrixError::MaximumAbsoluteEntryExceeded {
+            threshold: 11.0,
+            maximum: 12.0,
+        })
+    ));
+
     let normalized = scaled.normalize(3.0).unwrap();
     assert_eq!(normalized.values().max_abs_real(), 3.0);
     assert_eq!(normalized.coefficient(0, 1), 3.0);
@@ -222,6 +247,10 @@ fn recipes_and_transformations_reject_invalid_numeric_parameters() {
 
     let matrix = InteractionMatrix::from_rows(vec![vec![1.0]], 1).unwrap();
     assert!(matrix.scale(f64::INFINITY).is_err());
+    assert!(matrix.clamp_min(f64::NAN).is_err());
+    assert!(matrix.clamp_max(f64::INFINITY).is_err());
+    assert!(matrix.ensure_max_abs_at_most(-1.0).is_err());
+    assert!(matrix.ensure_max_abs_at_most(f64::INFINITY).is_err());
     assert!(matrix.normalize(-1.0).is_err());
     assert!(matrix.normalize(f64::NAN).is_err());
 }
