@@ -4,16 +4,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use physics_in_parallel::math::prelude::{
-    DenseMatrix, MatrixError, RandType, TensorRandError, TensorRandFiller,
+use physics_in_parallel::prelude::basic::{
+    DenseMatrix, MatrixError, RandType, RngConfig, RngConfigError, TensorRandError,
+    TensorRandFiller,
 };
-use physics_in_parallel::rng::{RngConfig, RngConfigError};
-use scientific_workflow::artifact::{
-    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError,
-    load_verified_artifact, persist_artifact,
+use scientific_workflow::prelude::basics::{
+    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError, ExecutionScope,
+    RngRecord, RngRecordError, load_verified_artifact, persist_artifact,
 };
-use scientific_workflow::execution::ExecutionScope;
-use scientific_workflow::rng_record::{RngRecord, RngRecordError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -251,10 +249,10 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                let samples = sample_structured_inputs(&mut filler, species, matrix_len)?;
+                let samples =
+                    sample_structured_inputs(&mut filler, species, matrix_len, &mut values)?;
                 let first_normal = samples.first_normal;
                 let second_normal = samples.second_normal;
-                let connection_uniform = samples.connection_uniform;
                 let divisor = normalization.divisor(species);
                 for index in 0..species {
                     values[index * species + index] = diagonal.fixed_value().unwrap_or_else(|| {
@@ -266,7 +264,7 @@ impl InteractionMatrixRecipe {
                 for row in 0..species {
                     for column in (row + 1)..species {
                         let index = row * species + column;
-                        if *connectance < 1.0 && connection_uniform[index] >= *connectance {
+                        if *connectance < 1.0 && values[index] >= *connectance {
                             continue;
                         }
                         let first = first_normal[index];
@@ -288,10 +286,10 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                let samples = sample_structured_inputs(&mut filler, species, matrix_len)?;
+                let samples =
+                    sample_structured_inputs(&mut filler, species, matrix_len, &mut values)?;
                 let first_normal = samples.first_normal;
                 let second_normal = samples.second_normal;
-                let connection_uniform = samples.connection_uniform;
                 fill_diagonal(
                     &mut values,
                     species,
@@ -303,7 +301,7 @@ impl InteractionMatrixRecipe {
                 for row in 0..species {
                     for column in (row + 1)..species {
                         let index = row * species + column;
-                        if *connectance < 1.0 && connection_uniform[index] >= *connectance {
+                        if *connectance < 1.0 && values[index] >= *connectance {
                             continue;
                         }
                         let first = first_normal[index].abs() * magnitude;
@@ -327,7 +325,6 @@ impl InteractionMatrixRecipe {
         )?;
         Ok(InteractionMatrix::from_generated(
             DenseMatrix::try_from_vec(species, species, values)?,
-            species,
             generator,
         )?)
     }
@@ -356,17 +353,16 @@ impl InteractionMatrixRecipe {
 struct StructuredSamples {
     first_normal: Vec<f64>,
     second_normal: Vec<f64>,
-    connection_uniform: Vec<f64>,
 }
 
 fn sample_structured_inputs(
     filler: &mut TensorRandFiller,
     species: usize,
     matrix_len: usize,
+    output: &mut [f64],
 ) -> Result<StructuredSamples, TensorRandError> {
     let mut first_normal = vec![0.0; matrix_len];
     let mut second_normal = vec![0.0; matrix_len];
-    let mut connection_uniform = vec![0.0; matrix_len];
     filler.try_fill_slice_at_layout(
         &mut first_normal,
         species,
@@ -383,16 +379,10 @@ fn sample_structured_inputs(
         low: 0.0,
         high: 1.0,
     });
-    filler.try_fill_slice_at_layout(
-        &mut connection_uniform,
-        species,
-        0,
-        DOMAIN_CONNECTANCE ^ species as u64,
-    )?;
+    filler.try_fill_slice_at_layout(output, species, 0, DOMAIN_CONNECTANCE ^ species as u64)?;
     Ok(StructuredSamples {
         first_normal,
         second_normal,
-        connection_uniform,
     })
 }
 
@@ -439,31 +429,19 @@ pub struct InteractionMatrix {
 }
 
 impl InteractionMatrix {
-    pub fn from_matrix(
-        values: DenseMatrix<f64>,
-        species: usize,
-    ) -> Result<Self, InteractionMatrixError> {
+    pub fn from_matrix(values: DenseMatrix<f64>) -> Result<Self, InteractionMatrixError> {
         Self::resolve(
             Arc::new(values),
-            species,
             InteractionProvenance::InMemory { label: None },
         )
     }
 
-    pub fn from_shared(
-        values: Arc<DenseMatrix<f64>>,
-        species: usize,
-    ) -> Result<Self, InteractionMatrixError> {
-        Self::resolve(
-            values,
-            species,
-            InteractionProvenance::InMemory { label: None },
-        )
+    pub fn from_shared(values: Arc<DenseMatrix<f64>>) -> Result<Self, InteractionMatrixError> {
+        Self::resolve(values, InteractionProvenance::InMemory { label: None })
     }
 
     pub fn from_labeled_matrix(
         values: DenseMatrix<f64>,
-        species: usize,
         label: impl Into<String>,
     ) -> Result<Self, InteractionMatrixError> {
         let label = label.into();
@@ -472,13 +450,15 @@ impl InteractionMatrix {
         }
         Self::resolve(
             Arc::new(values),
-            species,
             InteractionProvenance::InMemory { label: Some(label) },
         )
     }
 
-    pub fn from_rows(rows: Vec<Vec<f64>>, species: usize) -> Result<Self, InteractionMatrixError> {
+    pub fn from_rows(rows: Vec<Vec<f64>>) -> Result<Self, InteractionMatrixError> {
         let row_count = rows.len();
+        if row_count == 0 {
+            return Err(InteractionMatrixError::EmptySpecies);
+        }
         let column_count = rows.first().map_or(0, Vec::len);
         for (row, values) in rows.iter().enumerate() {
             if values.len() != column_count {
@@ -494,13 +474,10 @@ impl InteractionMatrix {
             column_count,
             rows.into_iter().flatten().collect(),
         )?;
-        Self::resolve(Arc::new(values), species, InteractionProvenance::Inline)
+        Self::resolve(Arc::new(values), InteractionProvenance::Inline)
     }
 
-    pub fn load_json(
-        path: impl Into<PathBuf>,
-        species: usize,
-    ) -> Result<Self, InteractionMatrixError> {
+    pub fn load_json(path: impl Into<PathBuf>) -> Result<Self, InteractionMatrixError> {
         let path = path.into();
         let bytes = fs::read(&path).map_err(|source| InteractionMatrixError::Io {
             path: path.clone(),
@@ -509,28 +486,18 @@ impl InteractionMatrix {
         Self::from_json_bytes(
             bytes,
             path.clone(),
-            species,
             InteractionProvenance::JsonFile { path },
         )
     }
 
     pub fn from_generated(
         values: DenseMatrix<f64>,
-        species: usize,
         generator: GeneratorProvenance,
     ) -> Result<Self, InteractionMatrixError> {
         Self::resolve(
             Arc::new(values),
-            species,
             InteractionProvenance::Generated { generator },
         )
-    }
-
-    pub fn generate(
-        species: usize,
-        recipe: &InteractionMatrixRecipe,
-    ) -> Result<Self, InteractionRecipeError> {
-        recipe.generate(species)
     }
 
     pub fn species(&self) -> usize {
@@ -549,6 +516,11 @@ impl InteractionMatrix {
     #[inline]
     pub fn mul_vector_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), MatrixError> {
         self.values.mul_vector_into(input, output)
+    }
+    /// Apply this interaction matrix to a contiguous batch of species vectors.
+    #[inline]
+    pub fn mul_vectors_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), MatrixError> {
+        self.values.mul_vectors_into(input, output)
     }
     pub const fn provenance(&self) -> &InteractionProvenance {
         &self.provenance
@@ -656,7 +628,6 @@ impl InteractionMatrix {
     fn from_json_bytes(
         bytes: Vec<u8>,
         path: PathBuf,
-        species: usize,
         provenance: InteractionProvenance,
     ) -> Result<Self, InteractionMatrixError> {
         let values =
@@ -664,7 +635,7 @@ impl InteractionMatrix {
                 path: path.clone(),
                 source,
             })?;
-        Self::resolve(Arc::new(values), species, provenance)
+        Self::resolve(Arc::new(values), provenance)
     }
 
     fn derive(
@@ -672,11 +643,7 @@ impl InteractionMatrix {
         values: DenseMatrix<f64>,
         transformation: InteractionTransformation,
     ) -> Result<Self, InteractionMatrixError> {
-        Self::resolve(
-            Arc::new(values),
-            self.species(),
-            self.derived_provenance(transformation),
-        )
+        Self::resolve(Arc::new(values), self.derived_provenance(transformation))
     }
 
     fn derived_provenance(
@@ -691,29 +658,21 @@ impl InteractionMatrix {
 
     fn resolve(
         values: Arc<DenseMatrix<f64>>,
-        species: usize,
         provenance: InteractionProvenance,
     ) -> Result<Self, InteractionMatrixError> {
-        if species == 0 {
-            return Err(InteractionMatrixError::EmptySpecies);
-        }
         let rows = values.rows();
         let columns = values.cols();
         if rows != columns {
             return Err(InteractionMatrixError::NonSquare { rows, columns });
         }
-        if rows != species {
-            return Err(InteractionMatrixError::SpeciesMismatch {
-                expected: species,
-                actual: rows,
-            });
-        }
-        for row in 0..rows {
-            for column in 0..columns {
-                let value = values.get(row as isize, column as isize);
-                if !value.is_finite() {
-                    return Err(InteractionMatrixError::NonFiniteEntry { row, column, value });
-                }
+        for flat in 0..values.size() {
+            let value = values.get_flat(flat as isize);
+            if !value.is_finite() {
+                return Err(InteractionMatrixError::NonFiniteEntry {
+                    row: flat / columns,
+                    column: flat % columns,
+                    value,
+                });
             }
         }
         Ok(Self { values, provenance })
@@ -952,12 +911,19 @@ pub fn load_verified_interaction_matrix(
     }
     let verified = load_verified_artifact(execution_directory, &descriptor.artifact)?;
     let path = verified.path().to_path_buf();
-    Ok(InteractionMatrix::from_json_bytes(
+    let matrix = InteractionMatrix::from_json_bytes(
         verified.into_bytes(),
         path,
-        descriptor.species,
         descriptor.provenance.clone(),
-    )?)
+    )?;
+    if matrix.species() != descriptor.species {
+        return Err(InteractionMatrixError::SpeciesMismatch {
+            expected: descriptor.species,
+            actual: matrix.species(),
+        }
+        .into());
+    }
+    Ok(matrix)
 }
 
 #[derive(Debug, Error)]

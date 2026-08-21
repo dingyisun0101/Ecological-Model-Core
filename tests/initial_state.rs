@@ -2,10 +2,8 @@ use ecological_model_core::initial_state::{
     DistributionSource, INITIAL_STATE_FORMAT, InitialStateRecipe, InitializationMethod,
     load_verified_initial_state, persist_initial_state,
 };
-use physics_in_parallel::rng::RngConfig;
-use physics_in_parallel::space::discrete::square_lattice::SquareLatticeConfig;
-use scientific_workflow::artifact::ArtifactDisposition;
-use scientific_workflow::execution::ExecutionScope;
+use physics_in_parallel::prelude::basic::{RngConfig, SquareLatticeConfig};
+use scientific_workflow::prelude::basics::{ArtifactDisposition, ExecutionScope};
 
 #[test]
 fn recipe_is_reproducible_and_counts_are_exact() {
@@ -24,6 +22,26 @@ fn recipe_is_reproducible_and_counts_are_exact() {
     assert_eq!(first.counts().iter().sum::<usize>(), 81);
     assert_eq!(first.method(), InitializationMethod::CenteredSeed);
     assert_eq!(first.seed_taxon(), Some(1));
+}
+
+#[test]
+fn balanced_uniform_has_the_minimum_possible_count_spread() {
+    let recipe = InitialStateRecipe::BalancedUniform {
+        rng: RngConfig::new(Some(1201), None),
+    };
+    let first = recipe
+        .clone()
+        .create(SquareLatticeConfig::periodic(&[5, 7]), 8)
+        .unwrap();
+    let second = recipe
+        .create(SquareLatticeConfig::periodic(&[5, 7]), 8)
+        .unwrap();
+    assert_eq!(first.method(), InitializationMethod::BalancedUniform);
+    assert_eq!(first.space().data(), second.space().data());
+    assert_eq!(first.counts().iter().sum::<usize>(), 35);
+    assert_eq!(first.counts().iter().max().unwrap(), &5);
+    assert_eq!(first.counts().iter().min().unwrap(), &4);
+    assert_eq!(first.frequencies().iter().sum::<f64>(), 1.0);
 }
 
 #[test]

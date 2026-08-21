@@ -3,16 +3,14 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use physics_in_parallel::space::prelude::{
-    RngConfig, Space as SpaceOperations, SquareLattice, SquareLatticeConfig,
-    SquareLatticeConfigError, SquareLatticeInitMethod,
+use physics_in_parallel::prelude::basic::{
+    RngConfig, SquareLattice, SquareLatticeConfig, SquareLatticeConfigError,
+    SquareLatticeInitMethod,
 };
-use scientific_workflow::artifact::{
-    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError,
-    load_verified_artifact, persist_artifact,
+use scientific_workflow::prelude::basics::{
+    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError, ExecutionScope,
+    RngRecord, RngRecordError, load_verified_artifact, persist_artifact,
 };
-use scientific_workflow::execution::ExecutionScope;
-use scientific_workflow::rng_record::{RngRecord, RngRecordError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -73,6 +71,7 @@ impl DistributionSource {
 #[serde(rename_all = "snake_case")]
 pub enum InitializationMethod {
     Random,
+    BalancedUniform,
     CenteredSeed,
     CenteredDominantSeed,
 }
@@ -83,6 +82,11 @@ pub enum InitializationMethod {
 pub enum InitialStateRecipe {
     Random {
         distribution: DistributionSource,
+        #[serde(default)]
+        rng: RngConfig,
+    },
+    /// Assign the minimum-variance uniform taxon counts, then shuffle all sites.
+    BalancedUniform {
         #[serde(default)]
         rng: RngConfig,
     },
@@ -105,6 +109,7 @@ impl InitialStateRecipe {
     pub const fn method(&self) -> InitializationMethod {
         match self {
             Self::Random { .. } => InitializationMethod::Random,
+            Self::BalancedUniform { .. } => InitializationMethod::BalancedUniform,
             Self::CenteredSeed { .. } => InitializationMethod::CenteredSeed,
             Self::CenteredDominantSeed { .. } => InitializationMethod::CenteredDominantSeed,
         }
@@ -115,6 +120,7 @@ impl InitialStateRecipe {
             Self::Random { distribution, .. }
             | Self::CenteredSeed { distribution, .. }
             | Self::CenteredDominantSeed { distribution, .. } => distribution.path(),
+            Self::BalancedUniform { .. } => None,
         }
     }
 
@@ -128,6 +134,7 @@ impl InitialStateRecipe {
         }
         match self {
             Self::Random { distribution, .. } => distribution.validate(num_taxa),
+            Self::BalancedUniform { .. } => Ok(()),
             Self::CenteredSeed {
                 distribution,
                 seed_taxon,
@@ -174,6 +181,23 @@ impl InitialStateRecipe {
                 seed_radius,
                 rng,
             } => (distribution, rng, None, Some(seed_radius), true),
+            Self::BalancedUniform { rng } => {
+                let values = balanced_uniform_values(lattice.num_sites(), num_taxa);
+                let space = CategoricalSpace::new(
+                    lattice,
+                    SquareLatticeInitMethod::ShuffledValues { values, rng },
+                )?;
+                let counts = count_taxa(&space, num_taxa)?;
+                let rng_record = Some(rng_record_from_space(&space)?);
+                return Ok(InitialState {
+                    num_taxa,
+                    method,
+                    seed_taxon: None,
+                    rng_record,
+                    space,
+                    counts,
+                });
+            }
         };
         let mut weights = distribution.resolve(num_taxa)?;
         let seed_taxon = if dominant {
@@ -293,6 +317,18 @@ impl InitialState {
     }
     pub fn counts(&self) -> &[usize] {
         &self.counts
+    }
+    /// Returns the exact aggregate relative frequencies represented by the lattice.
+    pub fn frequencies(&self) -> Vec<f64> {
+        let total = self.space.num_sites() as f64;
+        self.counts
+            .iter()
+            .map(|&count| count as f64 / total)
+            .collect()
+    }
+    /// Encodes the complete reproducible state in eco_core's canonical JSON format.
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec(&InitialStateDocumentRef::from(self))
     }
     pub fn clone_space(&self) -> CategoricalSpace {
         self.space.clone()
@@ -556,6 +592,20 @@ fn count_taxa(space: &CategoricalSpace, num_taxa: usize) -> Result<TaxonCounts, 
         *count += 1;
     }
     Ok(counts)
+}
+
+fn balanced_uniform_values(num_sites: usize, num_taxa: usize) -> Vec<usize> {
+    let per_taxon = num_sites / num_taxa;
+    let remainder = num_sites % num_taxa;
+    let mut values = Vec::with_capacity(num_sites);
+    for taxon in 0..num_taxa {
+        values.extend(std::iter::repeat_n(
+            taxon,
+            per_taxon + usize::from(taxon < remainder),
+        ));
+    }
+    debug_assert_eq!(values.len(), num_sites);
+    values
 }
 
 fn validate_seed(

@@ -1,8 +1,12 @@
 # Ecological Model Core
 
+> **Alpha and breaking API notice:** version 0.7.0 targets PiP 3.6 and Workflow
+> 0.7. Earlier `eco_core` releases use obsolete dependency contracts and are
+> unsupported.
+
 Shared scientific primitives for ecological models that use different numerical
 methods. The crate deliberately contains no simulation engine or Workflow task:
-GLV and lattice Simulator remain independent runtime-integrated model crates.
+each downstream model remains an independent runtime-integrated crate.
 
 The public modules are:
 
@@ -21,6 +25,13 @@ abundance slices, so continuous and lattice models retain their native state
 representations and only copy the bounded samples the selected observer mode
 needs.
 
+`InitialStateRecipe::BalancedUniform` constructs the unique minimum-spread
+uniform count allocation: every taxon receives either `floor(N/K)` or
+`ceil(N/K)` sites. PiP then applies one reproducible unbiased permutation to
+the complete row-major lattice tensor. The resulting counts differ by at most
+one, and `InitialState::frequencies` exposes their exact aggregate composition
+for a continuous model using the same initial condition.
+
 The crate never reads or resolves Workflow task configuration. Callers provide
 ordinary resolved values (`Vec`, slices, `PathBuf`, recipes, and descriptors);
 an orchestrator or example owns configuration decoding and path-key resolution.
@@ -31,17 +42,18 @@ diagonal, is sampled independently. Transformations return new matrices, leave
 their sources unchanged, and retain a complete derived-provenance chain:
 
 ```rust
-use ecological_model_core::interaction::{InteractionMatrix, InteractionMatrixRecipe};
-use physics_in_parallel::rng::RngConfig;
+use ecological_model_core::interaction::InteractionMatrixRecipe;
+use physics_in_parallel::prelude::basic::RngConfig;
 
 let recipe = InteractionMatrixRecipe::RandomGaussian {
     mean: 0.0,
     standard_deviation: 1.0,
     rng: RngConfig::new(Some(42), None),
 };
-let lattice = InteractionMatrix::generate(8, &recipe)?
+let lattice = recipe.generate(8)?
     .scale(0.5)?
-    .abs()?;
+    .abs()?
+    .normalize(1.0)?;
 lattice.ensure_max_abs_at_most(1.0)?;
 let glv = lattice.antisymmetrize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -51,6 +63,13 @@ let glv = lattice.antisymmetrize()?;
 independent finite lower and upper bounds. `ensure_max_abs_at_most` validates
 a bound without changing the matrix, which is useful when exceeding the
 threshold should be an error.
+
+Matrix constructors infer the species count from the square PiP matrix; callers
+do not repeat it. Only random recipes require a species count because it defines
+the matrix that has not yet been created. `InteractionMatrix` delegates scalar,
+transpose, subtraction, absolute-value, reduction, and vector-application work
+to PiP. `mul_vectors_into` applies the same matrix to a contiguous batch while
+reusing caller-owned output storage.
 
 ```rust
 use ecological_model_core::trajectory::{

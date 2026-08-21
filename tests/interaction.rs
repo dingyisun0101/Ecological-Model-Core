@@ -2,8 +2,8 @@ use ecological_model_core::interaction::{
     DiagonalPolicy, InteractionMatrix, InteractionMatrixRecipe, InteractionProvenance,
     InteractionSourceKind, InteractionTransformation, MatrixNormalization, SignStructure,
 };
-use physics_in_parallel::rng::RngConfig;
-use scientific_workflow::execution::ExecutionScope;
+use physics_in_parallel::prelude::basic::{DenseMatrix, RngConfig};
+use scientific_workflow::prelude::basics::ExecutionScope;
 
 fn seeded(seed: u64) -> RngConfig {
     RngConfig::new(Some(seed), None)
@@ -60,7 +60,13 @@ fn independent_random_recipes_fill_every_entry_reproducibly() {
 
 #[test]
 fn transformations_compose_pip_matrix_operations_without_mutating_source() {
-    let source = InteractionMatrix::from_rows(vec![vec![1.0, 4.0], vec![-2.0, 3.0]], 2).unwrap();
+    let source = InteractionMatrix::from_rows(vec![vec![1.0, 4.0], vec![-2.0, 3.0]]).unwrap();
+    assert_eq!(source.species(), 2);
+    let mut products = [0.0; 4];
+    source
+        .mul_vectors_into(&[1.0, 1.0, 2.0, -1.0], &mut products)
+        .unwrap();
+    assert_eq!(products, [5.0, 1.0, -2.0, -7.0]);
     let antisymmetric = source.antisymmetrize().unwrap();
 
     assert_eq!(source.coefficient(0, 1), 4.0);
@@ -107,6 +113,24 @@ fn transformations_compose_pip_matrix_operations_without_mutating_source() {
         already_bounded.provenance().kind(),
         InteractionSourceKind::Derived
     );
+}
+
+#[test]
+fn matrix_constructors_infer_species_and_reject_non_square_inputs() {
+    let matrix =
+        InteractionMatrix::from_matrix(DenseMatrix::from_vec(2, 2, vec![1.0, 2.0, 3.0, 4.0]))
+            .unwrap();
+    assert_eq!(matrix.species(), 2);
+
+    let error =
+        InteractionMatrix::from_matrix(DenseMatrix::from_vec(2, 3, vec![0.0; 6])).unwrap_err();
+    assert!(matches!(
+        error,
+        ecological_model_core::interaction::InteractionMatrixError::NonSquare {
+            rows: 2,
+            columns: 3
+        }
+    ));
 }
 
 #[test]
@@ -245,7 +269,7 @@ fn recipes_and_transformations_reject_invalid_numeric_parameters() {
         .is_err()
     );
 
-    let matrix = InteractionMatrix::from_rows(vec![vec![1.0]], 1).unwrap();
+    let matrix = InteractionMatrix::from_rows(vec![vec![1.0]]).unwrap();
     assert!(matrix.scale(f64::INFINITY).is_err());
     assert!(matrix.clamp_min(f64::NAN).is_err());
     assert!(matrix.clamp_max(f64::INFINITY).is_err());
