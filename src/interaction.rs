@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+pub const INTERACTION_ARTIFACT_REFERENCE_FORMAT: &str =
+    "ecological.interaction-artifact-reference.v1";
+
 pub const INTERACTION_MATRIX_FORMAT: &str = "ecological.interaction-matrix.v2";
 pub const INTERACTION_MATRIX_METADATA_KEY: &str = "interaction_matrix";
 pub const INTERACTION_GENERATOR_RNG_NAMESPACE: &str = "ecological_model_core.interaction_matrix";
@@ -832,6 +835,63 @@ pub struct InteractionArtifactDescriptor {
     #[serde(flatten)]
     artifact: ArtifactDescriptor,
     provenance: InteractionProvenance,
+}
+
+/// Portable pointer to a verified interaction artifact produced by an earlier execution.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InteractionArtifactReference {
+    format: String,
+    execution_directory: PathBuf,
+    descriptor: InteractionArtifactDescriptor,
+}
+
+impl InteractionArtifactReference {
+    pub fn new(
+        execution_directory: impl Into<PathBuf>,
+        descriptor: InteractionArtifactDescriptor,
+    ) -> Self {
+        Self {
+            format: INTERACTION_ARTIFACT_REFERENCE_FORMAT.to_owned(),
+            execution_directory: execution_directory.into(),
+            descriptor,
+        }
+    }
+
+    pub fn load_json(path: impl Into<PathBuf>) -> Result<Self, InteractionArtifactLoadError> {
+        let path = path.into();
+        let bytes = fs::read(&path).map_err(|source| InteractionMatrixError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let reference: Self =
+            serde_json::from_slice(&bytes).map_err(|source| InteractionMatrixError::Json {
+                path: path.clone(),
+                source,
+            })?;
+        if reference.format != INTERACTION_ARTIFACT_REFERENCE_FORMAT
+            || reference.execution_directory.as_os_str().is_empty()
+        {
+            return Err(InteractionArtifactLoadError::InvalidDescriptor);
+        }
+        Ok(reference)
+    }
+
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec_pretty(self)
+    }
+
+    pub fn resolve(&self) -> Result<InteractionMatrix, InteractionArtifactLoadError> {
+        load_verified_interaction_matrix(&self.execution_directory, &self.descriptor)
+    }
+
+    pub fn execution_directory(&self) -> &Path {
+        &self.execution_directory
+    }
+
+    pub const fn descriptor(&self) -> &InteractionArtifactDescriptor {
+        &self.descriptor
+    }
 }
 
 impl InteractionArtifactDescriptor {

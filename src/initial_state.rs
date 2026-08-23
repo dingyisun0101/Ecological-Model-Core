@@ -18,6 +18,8 @@ use thiserror::Error;
 pub const INITIALIZATION_RNG_NAMESPACE: &str = "ecological_model_core.initial_state";
 pub const INITIAL_STATE_FORMAT: &str = "ecological.initial-state.v1";
 pub const INITIAL_STATE_METADATA_KEY: &str = "initial_state";
+pub const INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT: &str =
+    "ecological.initial-state-artifact-reference.v1";
 
 pub type CategoricalSpace = SquareLattice<usize>;
 pub type TaxonCounts = Vec<usize>;
@@ -376,6 +378,78 @@ pub struct InitialStateArtifactDescriptor {
     artifact: ArtifactDescriptor,
 }
 
+/// Portable pointer to a verified initial-state artifact produced by an earlier execution.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitialStateArtifactReference {
+    format: String,
+    execution_directory: PathBuf,
+    descriptor: InitialStateArtifactDescriptor,
+}
+
+impl InitialStateArtifactReference {
+    pub fn new(
+        execution_directory: impl Into<PathBuf>,
+        descriptor: InitialStateArtifactDescriptor,
+    ) -> Self {
+        Self {
+            format: INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT.to_owned(),
+            execution_directory: execution_directory.into(),
+            descriptor,
+        }
+    }
+
+    pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, InitialStateError> {
+        let reference: Self =
+            serde_json::from_slice(bytes).map_err(|source| InitialStateError::Json {
+                path: PathBuf::from("<initial-state-artifact-reference>"),
+                source,
+            })?;
+        if reference.format != INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT
+            || reference.execution_directory.as_os_str().is_empty()
+        {
+            return Err(InitialStateError::InvalidArtifactReference);
+        }
+        Ok(reference)
+    }
+
+    pub fn load_json(path: impl Into<PathBuf>) -> Result<Self, InitialStateError> {
+        let path = path.into();
+        let bytes = fs::read(&path).map_err(|source| InitialStateError::Io {
+            operation: "read initial-state artifact reference",
+            path: path.clone(),
+            source,
+        })?;
+        let reference: Self =
+            serde_json::from_slice(&bytes).map_err(|source| InitialStateError::Json {
+                path: path.clone(),
+                source,
+            })?;
+        if reference.format != INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT
+            || reference.execution_directory.as_os_str().is_empty()
+        {
+            return Err(InitialStateError::InvalidArtifactReference);
+        }
+        Ok(reference)
+    }
+
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec_pretty(self)
+    }
+
+    pub fn resolve(&self) -> Result<InitialState, InitialStateError> {
+        load_verified_initial_state(&self.execution_directory, &self.descriptor)
+    }
+
+    pub fn execution_directory(&self) -> &Path {
+        &self.execution_directory
+    }
+
+    pub const fn descriptor(&self) -> &InitialStateArtifactDescriptor {
+        &self.descriptor
+    }
+}
+
 impl InitialStateArtifactDescriptor {
     pub fn format(&self) -> &str {
         &self.format
@@ -568,7 +642,11 @@ fn remove_dominant_taxon(weights: &mut [f64]) -> Result<usize, InitialStateError
         .max_by(|left, right| left.1.total_cmp(right.1).then(right.0.cmp(&left.0)))
         .map(|(taxon, _)| taxon)
         .expect("validated distribution is nonempty");
-    let background_total = weights.iter().sum::<f64>() - weights[dominant];
+    let background_total = weights
+        .iter()
+        .enumerate()
+        .filter_map(|(taxon, weight)| (taxon != dominant).then_some(*weight))
+        .sum::<f64>();
     if background_total <= 0.0 {
         return Err(InitialStateError::NoDominantSeedBackground);
     }
@@ -707,6 +785,8 @@ pub enum InitialStateError {
     LatticeMismatch,
     #[error("initial-state descriptor does not match its verified document")]
     DescriptorMismatch,
+    #[error("invalid initial-state artifact reference")]
+    InvalidArtifactReference,
     #[error("initial-state site {site} contains taxon {taxon}, outside 0..{num_taxa}")]
     SpaceTaxonOutOfRange {
         site: usize,

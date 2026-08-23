@@ -60,6 +60,20 @@ fn dominant_recipe_uses_first_maximal_taxon() {
 }
 
 #[test]
+fn dominant_recipe_retains_tiny_positive_background_mass() {
+    let state = InitialStateRecipe::CenteredDominantSeed {
+        distribution: DistributionSource::Inline {
+            weights: vec![1.0, 1.0e-300, 2.0e-300],
+        },
+        seed_radius: 1,
+        rng: RngConfig::new(Some(19), None),
+    }
+    .create(SquareLatticeConfig::periodic(&[8]), 3)
+    .unwrap();
+    assert_eq!(state.seed_taxon(), Some(0));
+}
+
+#[test]
 fn verified_artifact_round_trip_is_exact() {
     let directory = tempfile::tempdir().unwrap();
     let scope = ExecutionScope::create_named(directory.path(), "execution").unwrap();
