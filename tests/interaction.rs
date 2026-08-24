@@ -207,6 +207,39 @@ fn sign_structured_recipes_enforce_ecological_pair_signs() {
 }
 
 #[test]
+fn zero_connectance_removes_every_structured_off_diagonal_pair() {
+    let recipes = [
+        InteractionMatrixRecipe::CorrelatedGaussian {
+            mean: 0.5,
+            standard_deviation: 1.0,
+            reciprocal_correlation: -0.25,
+            connectance: 0.0,
+            diagonal: DiagonalPolicy::Constant(-1.0),
+            normalization: MatrixNormalization::SqrtSpecies,
+            rng: seeded(92),
+        },
+        InteractionMatrixRecipe::SignStructuredGaussian {
+            structure: SignStructure::Mutualism,
+            scale: 1.0,
+            connectance: 0.0,
+            diagonal: DiagonalPolicy::Constant(-1.0),
+            normalization: MatrixNormalization::SqrtSpecies,
+            rng: seeded(93),
+        },
+    ];
+
+    for recipe in recipes {
+        let matrix = recipe.generate(6).unwrap();
+        for row in 0..6 {
+            for column in 0..6 {
+                let expected = if row == column { -1.0 } else { 0.0 };
+                assert_eq!(matrix.coefficient(row, column), expected);
+            }
+        }
+    }
+}
+
+#[test]
 fn derived_provenance_survives_verified_artifact_round_trip() {
     let directory = tempfile::tempdir().unwrap();
     let scope = ExecutionScope::create_named(directory.path(), "execution").unwrap();

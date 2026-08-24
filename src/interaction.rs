@@ -23,7 +23,7 @@ pub const INTERACTION_MATRIX_FORMAT: &str = "ecological.interaction-matrix.v2";
 pub const INTERACTION_MATRIX_METADATA_KEY: &str = "interaction_matrix";
 pub const INTERACTION_GENERATOR_RNG_NAMESPACE: &str = "ecological_model_core.interaction_matrix";
 pub const INTERACTION_GENERATOR_IDENTITY: &str = "ecological_model_core.interaction_matrix";
-pub const INTERACTION_GENERATOR_VERSION: &str = "3";
+pub const INTERACTION_GENERATOR_VERSION: &str = "4";
 
 const DOMAIN_INDEPENDENT: u64 = 0x73d8_ba6e_209f_54c1;
 const DOMAIN_CONNECTANCE: u64 = 0x5c1a_9f20_f678_314d;
@@ -252,10 +252,10 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                let samples =
-                    sample_structured_inputs(&mut filler, species, matrix_len, &mut values)?;
+                let samples = sample_structured_inputs(&mut filler, species, matrix_len)?;
                 let first_normal = samples.first_normal;
                 let second_normal = samples.second_normal;
+                let connection_uniform = samples.connection_uniform;
                 let divisor = normalization.divisor(species);
                 for index in 0..species {
                     values[index * species + index] = diagonal.fixed_value().unwrap_or_else(|| {
@@ -267,7 +267,7 @@ impl InteractionMatrixRecipe {
                 for row in 0..species {
                     for column in (row + 1)..species {
                         let index = row * species + column;
-                        if *connectance < 1.0 && values[index] >= *connectance {
+                        if *connectance < 1.0 && connection_uniform[index] >= *connectance {
                             continue;
                         }
                         let first = first_normal[index];
@@ -289,10 +289,10 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                let samples =
-                    sample_structured_inputs(&mut filler, species, matrix_len, &mut values)?;
+                let samples = sample_structured_inputs(&mut filler, species, matrix_len)?;
                 let first_normal = samples.first_normal;
                 let second_normal = samples.second_normal;
+                let connection_uniform = samples.connection_uniform;
                 fill_diagonal(
                     &mut values,
                     species,
@@ -304,7 +304,7 @@ impl InteractionMatrixRecipe {
                 for row in 0..species {
                     for column in (row + 1)..species {
                         let index = row * species + column;
-                        if *connectance < 1.0 && values[index] >= *connectance {
+                        if *connectance < 1.0 && connection_uniform[index] >= *connectance {
                             continue;
                         }
                         let first = first_normal[index].abs() * magnitude;
@@ -356,16 +356,17 @@ impl InteractionMatrixRecipe {
 struct StructuredSamples {
     first_normal: Vec<f64>,
     second_normal: Vec<f64>,
+    connection_uniform: Vec<f64>,
 }
 
 fn sample_structured_inputs(
     filler: &mut TensorRandFiller,
     species: usize,
     matrix_len: usize,
-    output: &mut [f64],
 ) -> Result<StructuredSamples, TensorRandError> {
     let mut first_normal = vec![0.0; matrix_len];
     let mut second_normal = vec![0.0; matrix_len];
+    let mut connection_uniform = vec![0.0; matrix_len];
     filler.try_fill_slice_at_layout(
         &mut first_normal,
         species,
@@ -382,10 +383,16 @@ fn sample_structured_inputs(
         low: 0.0,
         high: 1.0,
     });
-    filler.try_fill_slice_at_layout(output, species, 0, DOMAIN_CONNECTANCE ^ species as u64)?;
+    filler.try_fill_slice_at_layout(
+        &mut connection_uniform,
+        species,
+        0,
+        DOMAIN_CONNECTANCE ^ species as u64,
+    )?;
     Ok(StructuredSamples {
         first_normal,
         second_normal,
+        connection_uniform,
     })
 }
 
