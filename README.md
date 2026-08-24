@@ -1,6 +1,6 @@
 # Ecological Model Core
 
-> **Alpha and breaking API notice:** version 0.7.0 targets PiP 3.6 and Workflow
+> **Alpha and breaking API notice:** version 0.8.0 targets PiP 3.7 and Workflow
 > 0.7. Earlier `eco_core` releases use obsolete dependency contracts and are
 > unsupported.
 
