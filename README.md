@@ -19,6 +19,8 @@ The public modules are:
   ecological input artifacts;
 - `interaction`: validated ecological interaction matrices, reproducible random
   sources, and composable PiP-backed transformations;
+- `state_schema`: the sole embedded canonical ecological Workflow state schema
+  and its typed provider descriptor;
 - `trajectory`: a bounded, allocation-conscious trajectory observer with
   disabled, terminal-only, and detection modes;
 - `terminal_state`: validated terminal composition and auditable equilibrium,
@@ -37,11 +39,13 @@ the complete row-major lattice tensor. The resulting counts differ by at most
 one, and `InitialState::frequencies` exposes their exact aggregate composition
 for a continuous model using the same initial condition.
 
-The crate has no Scientific Workflow dependency. It never reads or resolves a
-Workflow project, implements a Workflow task, or writes a Workflow recording.
-Callers provide ordinary resolved values (`Vec`, slices, `PathBuf`, recipes,
-and descriptors); an orchestrator or model owns configuration decoding and
-path-key resolution.
+The crate depends on Scientific Workflow only for the neutral
+`StateSchemaProvider` descriptor. It never reads or resolves a Workflow
+project, implements an execution unit, or writes a Workflow recording. It has
+no dependency on Dispatcher, GLV, Simulator, or another private downstream
+crate. Callers provide ordinary resolved values (`Vec`, slices, `PathBuf`,
+recipes, and descriptors); an orchestrator or model owns configuration
+decoding and path-key resolution.
 
 For comparative applications, `inputs::EcologicalInputs` is the canonical
 model-neutral envelope. It pairs one final model-ready
@@ -53,11 +57,17 @@ continuous model derives exact frequencies from that same state. The envelope
 does not select recipes, apply model-specific transformations, or own runtime
 configuration.
 
+After verification, `ResolvedEcologicalInputs` is exactly the typed wrapper
+around `(InteractionMatrix, InitialState)`. Models may borrow the two values or
+call `into_parts()` to take that tuple directly; Eco Core does not construct a
+GLV- or Simulator-specific state around it.
+
 ## Installation
 
 ```toml
 [dependencies]
-ecological-model-core = "0.11.0"
+ecological-model-core = "0.11.2"
+scientific-workflow = "0.11.5"
 physics_in_parallel = "3.7.0"
 ```
 
@@ -66,10 +76,38 @@ initial-state, interaction, trajectory, or terminal-product semantics. A model
 that needs only one small local calculation may be clearer without the extra
 dependency.
 
-When used with Scientific Workflow 0.10.3, put recipes and other resolved
+When used with Scientific Workflow 0.11.5, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
-still directly owns its Workflow `SystemState`; eco-core does not own the
-model, state schema, observation plan, recording destination, or runtime.
+still directly owns its Workflow `SystemState`; Eco Core owns only the standard
+layout supplied to that state, not the model, observation plan, recording
+destination, or runtime.
+
+## Canonical ecological state schema
+
+Eco Core is the sole source of `schemas/ecological_state.json`. A receiving
+model does not vendor or load another copy. It forwards the provider from its
+Workflow execution-unit implementation:
+
+```rust,ignore
+use ecological_model_core::state_schema::ecological_state_schema;
+use scientific_workflow::prelude::*;
+
+impl ExecutionUnit for EcologicalUnit {
+    type Constants = EcologicalConstants;
+
+    fn standard_state_schema() -> Option<scientific_workflow::state::StateSchemaProvider> {
+        Some(ecological_state_schema())
+    }
+
+    // preflight, initialize, member_count, member, and step follow.
+}
+```
+
+The model's `study.json` task can then omit `state`, and `paths.states` can be
+absent when no project-owned schema is needed. Study validates the embedded
+document once, passes the resulting `SystemStateSchema` directly to the unit,
+and records `ecological-model-core.ecological-state.v1` as state provenance.
+An explicit project state remains a deliberate override.
 
 ## Verified ecological inputs
 

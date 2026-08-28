@@ -1,6 +1,6 @@
 [package]
 name = "ecological-model-core"
-version = "0.11.1"
+version = "0.11.2"
 edition = "2024"
 rust-version = "1.97"
 description = "Shared ecological initial states, interactions, trajectory observation, and terminal products"
@@ -11,10 +11,11 @@ homepage = "https://github.com/dingyisun0101/Ecological-Model-Core"
 documentation = "https://docs.rs/ecological-model-core"
 keywords = ["ecology", "simulation", "dynamical-systems", "scientific"]
 categories = ["science", "simulation"]
-include = ["src/**/*.rs", "tests/**/*.rs", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "README.md", "LICENSE"]
 
 [dependencies]
 physics_in_parallel = "3.7.0"
+scientific-workflow = "0.11.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
