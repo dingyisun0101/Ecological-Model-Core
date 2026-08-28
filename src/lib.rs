@@ -2,6 +2,7 @@
 
 //! Neutral scientific contracts shared by ecological simulation methods.
 
+pub mod artifact;
 pub mod initial_state;
 pub mod interaction;
 pub mod terminal_state;

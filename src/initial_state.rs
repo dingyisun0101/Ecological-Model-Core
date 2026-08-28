@@ -7,19 +7,19 @@ use physics_in_parallel::prelude::basic::{
     RngConfig, SquareLattice, SquareLatticeConfig, SquareLatticeConfigError,
     SquareLatticeInitMethod,
 };
-use scientific_workflow::prelude::basics::{
-    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError, ExecutionScope,
-    RngRecord, RngRecordError, load_verified_artifact, persist_artifact,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-pub const INITIALIZATION_RNG_NAMESPACE: &str = "ecological_model_core.initial_state";
-pub const INITIAL_STATE_FORMAT: &str = "ecological.initial-state.v1";
+use crate::artifact::{
+    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError,
+    load_verified_artifact, persist_artifact,
+};
+
+pub const INITIAL_STATE_FORMAT: &str = "ecological.initial-state.v2";
 pub const INITIAL_STATE_METADATA_KEY: &str = "initial_state";
 pub const INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT: &str =
-    "ecological.initial-state-artifact-reference.v1";
+    "ecological.initial-state-artifact-reference.v2";
 
 pub type CategoricalSpace = SquareLattice<usize>;
 pub type TaxonCounts = Vec<usize>;
@@ -190,12 +190,12 @@ impl InitialStateRecipe {
                     SquareLatticeInitMethod::ShuffledValues { values, rng },
                 )?;
                 let counts = count_taxa(&space, num_taxa)?;
-                let rng_record = Some(rng_record_from_space(&space)?);
+                let rng = Some(resolved_rng_from_space(&space)?);
                 return Ok(InitialState {
                     num_taxa,
                     method,
                     seed_taxon: None,
-                    rng_record,
+                    rng,
                     space,
                     counts,
                 });
@@ -221,12 +221,12 @@ impl InitialStateRecipe {
             let shape = space.config().shape().to_vec();
             plant_centered_seed(&mut space, &mut counts, &shape, taxon, radius);
         }
-        let rng_record = Some(rng_record_from_space(&space)?);
+        let rng = Some(resolved_rng_from_space(&space)?);
         Ok(InitialState {
             num_taxa,
             method,
             seed_taxon,
-            rng_record,
+            rng,
             space,
             counts,
         })
@@ -241,7 +241,7 @@ pub enum InitialStateSource {
         recipe: InitialStateRecipe,
     },
     VerifiedArtifact {
-        execution_directory: PathBuf,
+        artifact_root: PathBuf,
         descriptor: InitialStateArtifactDescriptor,
     },
 }
@@ -255,10 +255,10 @@ impl InitialStateSource {
         match self {
             Self::Recipe { recipe } => recipe.validate(lattice, num_taxa),
             Self::VerifiedArtifact {
-                execution_directory,
+                artifact_root,
                 descriptor,
             } => {
-                if execution_directory.as_os_str().is_empty() {
+                if artifact_root.as_os_str().is_empty() {
                     return Err(InitialStateError::EmptyPath);
                 }
                 if descriptor.lattice() != lattice {
@@ -284,9 +284,9 @@ impl InitialStateSource {
         match self {
             Self::Recipe { recipe } => recipe.clone().create(lattice, num_taxa),
             Self::VerifiedArtifact {
-                execution_directory,
+                artifact_root,
                 descriptor,
-            } => load_verified_initial_state(execution_directory, descriptor),
+            } => load_verified_initial_state(artifact_root, descriptor),
         }
     }
 }
@@ -296,7 +296,7 @@ pub struct InitialState {
     num_taxa: usize,
     method: InitializationMethod,
     seed_taxon: Option<usize>,
-    rng_record: Option<RngRecord>,
+    rng: Option<RngConfig>,
     space: CategoricalSpace,
     counts: TaxonCounts,
 }
@@ -311,8 +311,9 @@ impl InitialState {
     pub const fn seed_taxon(&self) -> Option<usize> {
         self.seed_taxon
     }
-    pub const fn rng_record(&self) -> Option<&RngRecord> {
-        self.rng_record.as_ref()
+    /// Returns the fully resolved PiP randomness used to construct the state.
+    pub const fn rng_config(&self) -> Option<RngConfig> {
+        self.rng
     }
     pub const fn space(&self) -> &CategoricalSpace {
         &self.space
@@ -346,7 +347,7 @@ struct InitialStateDocumentRef<'a> {
     num_taxa: usize,
     method: InitializationMethod,
     seed_taxon: Option<usize>,
-    rng_record: Option<&'a RngRecord>,
+    rng: Option<RngConfig>,
     lattice: &'a SquareLatticeConfig,
     sites: &'a [usize],
 }
@@ -358,7 +359,7 @@ impl<'a> From<&'a InitialState> for InitialStateDocumentRef<'a> {
             num_taxa: initial.num_taxa,
             method: initial.method,
             seed_taxon: initial.seed_taxon,
-            rng_record: initial.rng_record.as_ref(),
+            rng: initial.rng,
             lattice: initial.space.config(),
             sites: initial.space.data(),
         }
@@ -378,23 +379,20 @@ pub struct InitialStateArtifactDescriptor {
     artifact: ArtifactDescriptor,
 }
 
-/// Portable pointer to a verified initial-state artifact produced by an earlier execution.
+/// Serializable pointer to a verified initial-state artifact beneath an authored root.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InitialStateArtifactReference {
     format: String,
-    execution_directory: PathBuf,
+    artifact_root: PathBuf,
     descriptor: InitialStateArtifactDescriptor,
 }
 
 impl InitialStateArtifactReference {
-    pub fn new(
-        execution_directory: impl Into<PathBuf>,
-        descriptor: InitialStateArtifactDescriptor,
-    ) -> Self {
+    pub fn new(artifact_root: PathBuf, descriptor: InitialStateArtifactDescriptor) -> Self {
         Self {
             format: INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT.to_owned(),
-            execution_directory: execution_directory.into(),
+            artifact_root,
             descriptor,
         }
     }
@@ -406,15 +404,15 @@ impl InitialStateArtifactReference {
                 source,
             })?;
         if reference.format != INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT
-            || reference.execution_directory.as_os_str().is_empty()
+            || reference.artifact_root.as_os_str().is_empty()
         {
             return Err(InitialStateError::InvalidArtifactReference);
         }
         Ok(reference)
     }
 
-    pub fn load_json(path: impl Into<PathBuf>) -> Result<Self, InitialStateError> {
-        let path = path.into();
+    pub fn load_json(path: &Path) -> Result<Self, InitialStateError> {
+        let path = path.to_path_buf();
         let bytes = fs::read(&path).map_err(|source| InitialStateError::Io {
             operation: "read initial-state artifact reference",
             path: path.clone(),
@@ -426,7 +424,7 @@ impl InitialStateArtifactReference {
                 source,
             })?;
         if reference.format != INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT
-            || reference.execution_directory.as_os_str().is_empty()
+            || reference.artifact_root.as_os_str().is_empty()
         {
             return Err(InitialStateError::InvalidArtifactReference);
         }
@@ -438,11 +436,11 @@ impl InitialStateArtifactReference {
     }
 
     pub fn resolve(&self) -> Result<InitialState, InitialStateError> {
-        load_verified_initial_state(&self.execution_directory, &self.descriptor)
+        load_verified_initial_state(&self.artifact_root, &self.descriptor)
     }
 
-    pub fn execution_directory(&self) -> &Path {
-        &self.execution_directory
+    pub fn artifact_root(&self) -> &Path {
+        &self.artifact_root
     }
 
     pub const fn descriptor(&self) -> &InitialStateArtifactDescriptor {
@@ -469,7 +467,7 @@ impl InitialStateArtifactDescriptor {
     pub fn sha256(&self) -> &str {
         self.artifact.sha256()
     }
-    pub fn path(&self) -> &str {
+    pub fn path(&self) -> &Path {
         self.artifact.path()
     }
     pub fn insert_into_metadata(&self, metadata: &mut Map<String, Value>) -> Option<Value> {
@@ -499,11 +497,11 @@ impl PersistedInitialState {
 }
 
 pub fn persist_initial_state(
-    scope: &ExecutionScope,
+    artifact_root: &Path,
     initial: &InitialState,
 ) -> Result<PersistedInitialState, InitialStateError> {
     let bytes = serde_json::to_vec(&InitialStateDocumentRef::from(initial))?;
-    let persisted = persist_artifact(scope, "initial-state", "json", &bytes)?;
+    let persisted = persist_artifact(artifact_root, "initial-state", "json", &bytes)?;
     Ok(PersistedInitialState {
         descriptor: InitialStateArtifactDescriptor {
             format: INITIAL_STATE_FORMAT.to_owned(),
@@ -518,7 +516,7 @@ pub fn persist_initial_state(
 }
 
 pub fn load_verified_initial_state(
-    execution_directory: impl AsRef<Path>,
+    artifact_root: &Path,
     descriptor: &InitialStateArtifactDescriptor,
 ) -> Result<InitialState, InitialStateError> {
     if descriptor.format != INITIAL_STATE_FORMAT {
@@ -526,7 +524,7 @@ pub fn load_verified_initial_state(
             actual: descriptor.format.clone(),
         });
     }
-    let verified = load_verified_artifact(execution_directory, &descriptor.artifact)?;
+    let verified = load_verified_artifact(artifact_root, &descriptor.artifact)?;
     let document: InitialStateDocument =
         serde_json::from_slice(verified.bytes()).map_err(|source| InitialStateError::Json {
             path: verified.path().to_path_buf(),
@@ -546,7 +544,7 @@ struct InitialStateDocument {
     num_taxa: usize,
     method: InitializationMethod,
     seed_taxon: Option<usize>,
-    rng_record: Option<RngRecord>,
+    rng: Option<RngConfig>,
     lattice: SquareLatticeConfig,
     sites: Vec<usize>,
 }
@@ -586,32 +584,21 @@ impl InitialStateDocument {
             num_taxa: self.num_taxa,
             method: self.method,
             seed_taxon: self.seed_taxon,
-            rng_record: self.rng_record,
+            rng: self.rng,
             space,
             counts,
         })
     }
 }
 
-fn rng_record_from_space(space: &CategoricalSpace) -> Result<RngRecord, InitialStateError> {
+fn resolved_rng_from_space(space: &CategoricalSpace) -> Result<RngConfig, InitialStateError> {
     let config = space
         .initialization_rng_config()
         .ok_or(InitialStateError::MissingResolvedRngConfig)?;
-    let method = config
-        .method()
-        .ok_or(InitialStateError::MissingResolvedRngConfig)?;
-    let key = config
-        .encode_seed()
-        .ok_or(InitialStateError::MissingResolvedRngConfig)?;
-    let parameters = Map::new();
-    Ok(RngRecord::new(
-        INITIALIZATION_RNG_NAMESPACE,
-        method.name(),
-        method.version(),
-        method.seed_encoding(),
-        key,
-        Some(parameters),
-    )?)
+    if config.method().is_none() || config.seed().is_none() {
+        return Err(InitialStateError::MissingResolvedRngConfig);
+    }
+    Ok(config)
 }
 
 fn validate_distribution(weights: &[f64], num_taxa: usize) -> Result<(), InitialStateError> {
@@ -812,8 +799,6 @@ pub enum InitialStateError {
     Lattice(#[from] SquareLatticeConfigError),
     #[error("initialized lattice has no resolved RNG configuration")]
     MissingResolvedRngConfig,
-    #[error(transparent)]
-    RngRecord(#[from] RngRecordError),
     #[error(transparent)]
     Artifact(#[from] ArtifactError),
     #[error(transparent)]

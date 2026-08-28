@@ -1,9 +1,10 @@
+use ecological_model_core::artifact::ArtifactDisposition;
 use ecological_model_core::interaction::{
-    DiagonalPolicy, InteractionMatrix, InteractionMatrixRecipe, InteractionProvenance,
-    InteractionSourceKind, InteractionTransformation, MatrixNormalization, SignStructure,
+    DiagonalPolicy, InteractionArtifactReference, InteractionMatrix, InteractionMatrixRecipe,
+    InteractionProvenance, InteractionSourceKind, InteractionTransformation, MatrixNormalization,
+    SignStructure,
 };
 use physics_in_parallel::prelude::basic::{DenseMatrix, RngConfig};
-use scientific_workflow::prelude::basics::ExecutionScope;
 
 fn seeded(seed: u64) -> RngConfig {
     RngConfig::new(Some(seed), None)
@@ -242,7 +243,7 @@ fn zero_connectance_removes_every_structured_off_diagonal_pair() {
 #[test]
 fn derived_provenance_survives_verified_artifact_round_trip() {
     let directory = tempfile::tempdir().unwrap();
-    let scope = ExecutionScope::create_named(directory.path(), "execution").unwrap();
+    let artifact_root = directory.path().join("ecological-inputs");
     let matrix = InteractionMatrixRecipe::RandomGaussian {
         mean: 0.0,
         standard_deviation: 1.0,
@@ -255,9 +256,10 @@ fn derived_provenance_survives_verified_artifact_round_trip() {
     .scale(0.25)
     .unwrap();
     let persisted =
-        ecological_model_core::interaction::persist_interaction_matrix(&scope, &matrix).unwrap();
+        ecological_model_core::interaction::persist_interaction_matrix(&artifact_root, &matrix)
+            .unwrap();
     let loaded = ecological_model_core::interaction::load_verified_interaction_matrix(
-        scope.directory(),
+        &artifact_root,
         persisted.descriptor(),
     )
     .unwrap();
@@ -270,6 +272,40 @@ fn derived_provenance_survives_verified_artifact_round_trip() {
         }
     }
     assert_eq!(loaded.provenance(), matrix.provenance());
+    assert_eq!(loaded.generator_rng_config(), matrix.generator_rng_config());
+    assert_eq!(loaded.generator_rng_config().unwrap().seed(), Some(104));
+    assert!(loaded.generator_rng_config().unwrap().method().is_some());
+
+    let reused =
+        ecological_model_core::interaction::persist_interaction_matrix(&artifact_root, &matrix)
+            .unwrap();
+    assert_eq!(reused.disposition(), ArtifactDisposition::Reused);
+    assert_eq!(reused.descriptor(), persisted.descriptor());
+
+    let reference =
+        InteractionArtifactReference::new(artifact_root.clone(), persisted.into_descriptor());
+    assert_eq!(reference.artifact_root(), artifact_root);
+    let reference_json: serde_json::Value =
+        serde_json::from_slice(&reference.to_json_bytes().unwrap()).unwrap();
+    assert_eq!(
+        reference_json["format"],
+        "ecological.interaction-artifact-reference.v2"
+    );
+    assert!(reference_json.get("artifact_root").is_some());
+    assert!(reference_json.get("execution_directory").is_none());
+    let decoded_reference = InteractionArtifactReference::from_json_bytes(
+        &serde_json::to_vec(&reference_json).unwrap(),
+    )
+    .unwrap();
+    let reference_loaded = decoded_reference.resolve().unwrap();
+    for row in 0..matrix.species() {
+        for column in 0..matrix.species() {
+            assert_eq!(
+                reference_loaded.coefficient(row, column),
+                matrix.coefficient(row, column)
+            );
+        }
+    }
 }
 
 #[test]

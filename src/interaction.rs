@@ -8,20 +8,20 @@ use physics_in_parallel::prelude::basic::{
     DenseMatrix, MatrixError, RandType, RngConfig, RngConfigError, TensorRandError,
     TensorRandFiller,
 };
-use scientific_workflow::prelude::basics::{
-    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError, ExecutionScope,
-    RngRecord, RngRecordError, load_verified_artifact, persist_artifact,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+use crate::artifact::{
+    ArtifactDescriptor, ArtifactDisposition, ArtifactError, ArtifactLoadError,
+    load_verified_artifact, persist_artifact,
+};
+
 pub const INTERACTION_ARTIFACT_REFERENCE_FORMAT: &str =
-    "ecological.interaction-artifact-reference.v1";
+    "ecological.interaction-artifact-reference.v2";
 
 pub const INTERACTION_MATRIX_FORMAT: &str = "ecological.interaction-matrix.v2";
 pub const INTERACTION_MATRIX_METADATA_KEY: &str = "interaction_matrix";
-pub const INTERACTION_GENERATOR_RNG_NAMESPACE: &str = "ecological_model_core.interaction_matrix";
 pub const INTERACTION_GENERATOR_IDENTITY: &str = "ecological_model_core.interaction_matrix";
 pub const INTERACTION_GENERATOR_VERSION: &str = "4";
 
@@ -487,8 +487,8 @@ impl InteractionMatrix {
         Self::resolve(Arc::new(values), InteractionProvenance::Inline)
     }
 
-    pub fn load_json(path: impl Into<PathBuf>) -> Result<Self, InteractionMatrixError> {
-        let path = path.into();
+    pub fn load_json(path: &Path) -> Result<Self, InteractionMatrixError> {
+        let path = path.to_path_buf();
         let bytes = fs::read(&path).map_err(|source| InteractionMatrixError::Io {
             path: path.clone(),
             source,
@@ -631,8 +631,9 @@ impl InteractionMatrix {
         }
         self.derive(self.values.scalar_mul(scalar), transformation)
     }
-    pub fn generator_rng_record(&self) -> Result<Option<RngRecord>, RngRecordError> {
-        self.provenance.generator_rng_record()
+    /// Returns fully resolved PiP randomness for the originating generator.
+    pub const fn generator_rng_config(&self) -> Option<RngConfig> {
+        self.provenance.generator_rng_config()
     }
 
     fn from_json_bytes(
@@ -764,9 +765,11 @@ impl InteractionProvenance {
             _ => None,
         }
     }
-    pub fn generator_rng_record(&self) -> Result<Option<RngRecord>, RngRecordError> {
-        self.generator()
-            .map_or(Ok(None), GeneratorProvenance::rng_record)
+    pub const fn generator_rng_config(&self) -> Option<RngConfig> {
+        match self.generator() {
+            Some(generator) => generator.rng_config(),
+            None => None,
+        }
     }
 }
 
@@ -816,21 +819,8 @@ impl GeneratorProvenance {
     pub const fn rng(&self) -> Option<RngConfig> {
         self.rng
     }
-    pub fn rng_record(&self) -> Result<Option<RngRecord>, RngRecordError> {
-        let Some(rng) = self.rng else {
-            return Ok(None);
-        };
-        let method = rng.method().expect("generator RNG is resolved");
-        let mut parameters = Map::new();
-        parameters.insert("recipe".to_owned(), self.recipe.clone());
-        Ok(Some(RngRecord::new(
-            INTERACTION_GENERATOR_RNG_NAMESPACE,
-            format!("{}+{}", self.identity, method.name()),
-            format!("{}+{}", self.version, method.version()),
-            method.seed_encoding(),
-            rng.encode_seed().expect("generator RNG seed is resolved"),
-            Some(parameters),
-        )?))
+    pub const fn rng_config(&self) -> Option<RngConfig> {
+        self.rng
     }
 }
 
@@ -844,29 +834,36 @@ pub struct InteractionArtifactDescriptor {
     provenance: InteractionProvenance,
 }
 
-/// Portable pointer to a verified interaction artifact produced by an earlier execution.
+/// Serializable pointer to a verified interaction artifact beneath an authored root.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InteractionArtifactReference {
     format: String,
-    execution_directory: PathBuf,
+    artifact_root: PathBuf,
     descriptor: InteractionArtifactDescriptor,
 }
 
 impl InteractionArtifactReference {
-    pub fn new(
-        execution_directory: impl Into<PathBuf>,
-        descriptor: InteractionArtifactDescriptor,
-    ) -> Self {
+    pub fn new(artifact_root: PathBuf, descriptor: InteractionArtifactDescriptor) -> Self {
         Self {
             format: INTERACTION_ARTIFACT_REFERENCE_FORMAT.to_owned(),
-            execution_directory: execution_directory.into(),
+            artifact_root,
             descriptor,
         }
     }
 
-    pub fn load_json(path: impl Into<PathBuf>) -> Result<Self, InteractionArtifactLoadError> {
-        let path = path.into();
+    pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, InteractionArtifactLoadError> {
+        let reference: Self =
+            serde_json::from_slice(bytes).map_err(|source| InteractionMatrixError::Json {
+                path: PathBuf::from("<interaction-artifact-reference>"),
+                source,
+            })?;
+        reference.validate()?;
+        Ok(reference)
+    }
+
+    pub fn load_json(path: &Path) -> Result<Self, InteractionArtifactLoadError> {
+        let path = path.to_path_buf();
         let bytes = fs::read(&path).map_err(|source| InteractionMatrixError::Io {
             path: path.clone(),
             source,
@@ -876,11 +873,7 @@ impl InteractionArtifactReference {
                 path: path.clone(),
                 source,
             })?;
-        if reference.format != INTERACTION_ARTIFACT_REFERENCE_FORMAT
-            || reference.execution_directory.as_os_str().is_empty()
-        {
-            return Err(InteractionArtifactLoadError::InvalidDescriptor);
-        }
+        reference.validate()?;
         Ok(reference)
     }
 
@@ -889,15 +882,25 @@ impl InteractionArtifactReference {
     }
 
     pub fn resolve(&self) -> Result<InteractionMatrix, InteractionArtifactLoadError> {
-        load_verified_interaction_matrix(&self.execution_directory, &self.descriptor)
+        load_verified_interaction_matrix(&self.artifact_root, &self.descriptor)
     }
 
-    pub fn execution_directory(&self) -> &Path {
-        &self.execution_directory
+    pub fn artifact_root(&self) -> &Path {
+        &self.artifact_root
     }
 
     pub const fn descriptor(&self) -> &InteractionArtifactDescriptor {
         &self.descriptor
+    }
+
+    fn validate(&self) -> Result<(), InteractionArtifactLoadError> {
+        if self.format != INTERACTION_ARTIFACT_REFERENCE_FORMAT
+            || self.artifact_root.as_os_str().is_empty()
+        {
+            Err(InteractionArtifactLoadError::InvalidDescriptor)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -914,7 +917,7 @@ impl InteractionArtifactDescriptor {
     pub fn sha256(&self) -> &str {
         self.artifact.sha256()
     }
-    pub fn path(&self) -> &str {
+    pub fn path(&self) -> &Path {
         self.artifact.path()
     }
     pub const fn source_kind(&self) -> InteractionSourceKind {
@@ -953,11 +956,11 @@ impl PersistedInteraction {
 }
 
 pub fn persist_interaction_matrix(
-    scope: &ExecutionScope,
+    artifact_root: &Path,
     matrix: &InteractionMatrix,
 ) -> Result<PersistedInteraction, InteractionArtifactError> {
     let bytes = serde_json::to_vec(matrix.values())?;
-    let persisted = persist_artifact(scope, "interaction", "json", &bytes)?;
+    let persisted = persist_artifact(artifact_root, "interaction", "json", &bytes)?;
     Ok(PersistedInteraction {
         descriptor: InteractionArtifactDescriptor {
             format: INTERACTION_MATRIX_FORMAT.to_owned(),
@@ -970,13 +973,13 @@ pub fn persist_interaction_matrix(
 }
 
 pub fn load_verified_interaction_matrix(
-    execution_directory: impl AsRef<Path>,
+    artifact_root: &Path,
     descriptor: &InteractionArtifactDescriptor,
 ) -> Result<InteractionMatrix, InteractionArtifactLoadError> {
     if descriptor.format != INTERACTION_MATRIX_FORMAT || descriptor.species == 0 {
         return Err(InteractionArtifactLoadError::InvalidDescriptor);
     }
-    let verified = load_verified_artifact(execution_directory, &descriptor.artifact)?;
+    let verified = load_verified_artifact(artifact_root, &descriptor.artifact)?;
     let path = verified.path().to_path_buf();
     let matrix = InteractionMatrix::from_json_bytes(
         verified.into_bytes(),
@@ -1069,7 +1072,7 @@ pub enum InteractionArtifactError {
     #[error(transparent)]
     Serialize(#[from] serde_json::Error),
     #[error(transparent)]
-    Workflow(#[from] ArtifactError),
+    Artifact(#[from] ArtifactError),
 }
 
 #[derive(Debug, Error)]
@@ -1078,7 +1081,7 @@ pub enum InteractionArtifactLoadError {
     #[error("invalid interaction artifact descriptor")]
     InvalidDescriptor,
     #[error(transparent)]
-    Workflow(#[from] ArtifactLoadError),
+    Artifact(#[from] ArtifactLoadError),
     #[error(transparent)]
     Matrix(#[from] InteractionMatrixError),
 }

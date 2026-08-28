@@ -1,9 +1,11 @@
+use std::fs;
+
+use ecological_model_core::artifact::{ArtifactDisposition, ArtifactLoadError};
 use ecological_model_core::initial_state::{
-    DistributionSource, INITIAL_STATE_FORMAT, InitialStateRecipe, InitializationMethod,
-    load_verified_initial_state, persist_initial_state,
+    DistributionSource, INITIAL_STATE_FORMAT, InitialStateArtifactReference, InitialStateError,
+    InitialStateRecipe, InitializationMethod, load_verified_initial_state, persist_initial_state,
 };
 use physics_in_parallel::prelude::basic::{RngConfig, SquareLatticeConfig};
-use scientific_workflow::prelude::basics::{ArtifactDisposition, ExecutionScope};
 
 #[test]
 fn recipe_is_reproducible_and_counts_are_exact() {
@@ -76,17 +78,87 @@ fn dominant_recipe_retains_tiny_positive_background_mass() {
 #[test]
 fn verified_artifact_round_trip_is_exact() {
     let directory = tempfile::tempdir().unwrap();
-    let scope = ExecutionScope::create_named(directory.path(), "execution").unwrap();
+    let artifact_root = directory.path().join("ecological-inputs");
     let state = InitialStateRecipe::Random {
         distribution: DistributionSource::Uniform,
         rng: RngConfig::new(Some(903), None),
     }
     .create(SquareLatticeConfig::periodic(&[8]), 2)
     .unwrap();
-    let persisted = persist_initial_state(&scope, &state).unwrap();
+    let persisted = persist_initial_state(&artifact_root, &state).unwrap();
     assert_eq!(persisted.disposition(), ArtifactDisposition::Created);
     assert_eq!(persisted.descriptor().format(), INITIAL_STATE_FORMAT);
-    let loaded = load_verified_initial_state(scope.directory(), persisted.descriptor()).unwrap();
+    let loaded = load_verified_initial_state(&artifact_root, persisted.descriptor()).unwrap();
     assert_eq!(loaded.space().data(), state.space().data());
     assert_eq!(loaded.counts(), state.counts());
+    assert_eq!(loaded.rng_config(), state.rng_config());
+
+    let reused = persist_initial_state(&artifact_root, &state).unwrap();
+    assert_eq!(reused.disposition(), ArtifactDisposition::Reused);
+    assert_eq!(reused.descriptor(), persisted.descriptor());
+    assert_eq!(state.rng_config().unwrap().seed(), Some(903));
+    assert!(state.rng_config().unwrap().method().is_some());
+    let document: serde_json::Value =
+        serde_json::from_slice(&state.to_json_bytes().unwrap()).unwrap();
+    assert_eq!(document["format"], "ecological.initial-state.v2");
+    assert_eq!(document["rng"]["seed"], 903);
+    assert!(document.get("rng_record").is_none());
+}
+
+#[test]
+fn artifact_corruption_is_rejected_before_initial_state_decoding() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_root = directory.path().join("ecological-inputs");
+    let state = InitialStateRecipe::BalancedUniform {
+        rng: RngConfig::new(Some(904), None),
+    }
+    .create(SquareLatticeConfig::periodic(&[8]), 2)
+    .unwrap();
+    let persisted = persist_initial_state(&artifact_root, &state).unwrap();
+    fs::write(
+        artifact_root.join(persisted.descriptor().path()),
+        b"corrupt",
+    )
+    .unwrap();
+
+    assert!(matches!(
+        load_verified_initial_state(&artifact_root, persisted.descriptor()),
+        Err(InitialStateError::ArtifactLoad(
+            ArtifactLoadError::DigestMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
+fn portable_reference_rejects_root_escape_without_touching_the_target() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_root = directory.path().join("ecological-inputs");
+    let state = InitialStateRecipe::BalancedUniform {
+        rng: RngConfig::new(Some(905), None),
+    }
+    .create(SquareLatticeConfig::periodic(&[8]), 2)
+    .unwrap();
+    let persisted = persist_initial_state(&artifact_root, &state).unwrap();
+    let reference =
+        InitialStateArtifactReference::new(artifact_root.clone(), persisted.descriptor().clone());
+    assert_eq!(reference.artifact_root(), artifact_root);
+
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&reference.to_json_bytes().unwrap()).unwrap();
+    assert_eq!(
+        value["format"],
+        "ecological.initial-state-artifact-reference.v2"
+    );
+    assert!(value.get("artifact_root").is_some());
+    assert!(value.get("execution_directory").is_none());
+    value["descriptor"]["path"] = "../outside.json".into();
+    let escaped =
+        InitialStateArtifactReference::from_json_bytes(&serde_json::to_vec(&value).unwrap())
+            .unwrap();
+    assert!(matches!(
+        escaped.resolve(),
+        Err(InitialStateError::ArtifactLoad(
+            ArtifactLoadError::InvalidDescriptor { .. }
+        ))
+    ));
 }

@@ -1,8 +1,10 @@
 # Ecological Model Core
 
-> **Alpha and breaking API notice:** version 0.10.0 targets PiP 3.7 and Workflow
-> 0.9. Earlier `eco_core` releases use obsolete dependency contracts and are
-> unsupported.
+> **Breaking 0.11 update:** version 0.11.0 targets PiP 3.7 and removes the
+> obsolete Scientific Workflow 0.9 artifact, execution-scope, and RNG-record
+> contracts. There are no compatibility aliases. Consumers should pass
+> explicit artifact-root paths and use the resolved PiP `RngConfig` retained by
+> generated ecological values.
 
 Shared scientific primitives for ecological models that use different numerical
 methods. The crate deliberately contains no simulation engine or Workflow task:
@@ -10,8 +12,11 @@ each downstream model remains an independent runtime-integrated crate.
 
 The public modules are:
 
+- `artifact`: shared immutable descriptor, publication disposition, and typed
+  integrity failures; byte publication itself remains behind the ecological
+  modules that know the document semantics;
 - `initial_state`: reproducible categorical lattice initial states and verified
-  Workflow artifacts;
+  ecological input artifacts;
 - `interaction`: validated ecological interaction matrices, reproducible random
   sources, and composable PiP-backed transformations;
 - `trajectory`: a bounded, allocation-conscious trajectory observer with
@@ -32,9 +37,81 @@ the complete row-major lattice tensor. The resulting counts differ by at most
 one, and `InitialState::frequencies` exposes their exact aggregate composition
 for a continuous model using the same initial condition.
 
-The crate never reads or resolves Workflow task configuration. Callers provide
-ordinary resolved values (`Vec`, slices, `PathBuf`, recipes, and descriptors);
-an orchestrator or example owns configuration decoding and path-key resolution.
+The crate has no Scientific Workflow dependency. It never reads or resolves a
+Workflow project, implements a Workflow task, or writes a Workflow recording.
+Callers provide ordinary resolved values (`Vec`, slices, `PathBuf`, recipes,
+and descriptors); an orchestrator or model owns configuration decoding and
+path-key resolution.
+
+## Installation
+
+```toml
+[dependencies]
+ecological-model-core = "0.11.0"
+physics_in_parallel = "3.7.0"
+```
+
+Use this crate when multiple ecological models need the same validated
+initial-state, interaction, trajectory, or terminal-product semantics. A model
+that needs only one small local calculation may be clearer without the extra
+dependency.
+
+When used with Scientific Workflow 0.10.3, put recipes and other resolved
+scientific values in the model's custom `Constants` type. The registered model
+still directly owns its Workflow `SystemState`; eco-core does not own the
+model, state schema, observation plan, recording destination, or runtime.
+
+## Verified ecological inputs
+
+Initial states and interaction matrices can be published as immutable,
+content-addressed inputs beneath an explicit artifact root:
+
+```rust,no_run
+use std::path::Path;
+
+use ecological_model_core::artifact::ArtifactDisposition;
+use ecological_model_core::initial_state::{
+    InitialStateRecipe, persist_initial_state, load_verified_initial_state,
+};
+use physics_in_parallel::prelude::basic::{RngConfig, SquareLatticeConfig};
+
+let initial = InitialStateRecipe::BalancedUniform {
+    rng: RngConfig::new(Some(42), None),
+}.create(SquareLatticeConfig::periodic(&[8, 8]), 4)?;
+let root = Path::new("prepared-inputs");
+let persisted = persist_initial_state(root, &initial)?;
+assert_eq!(persisted.disposition(), ArtifactDisposition::Created);
+let restored = load_verified_initial_state(root, persisted.descriptor())?;
+assert_eq!(restored.counts(), initial.counts());
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Publication creates `<artifact-root>/inputs`, writes and synchronizes complete
+temporary bytes, then publishes a digest-derived immutable filename. Repeating
+the same publication returns `Reused`; conflicting or corrupted bytes fail.
+Loading rejects malformed descriptors, path traversal, symlink escape, and
+SHA-256 mismatch before semantic decoding.
+
+These are application-prepared scientific inputs, not an alternative Workflow
+recording writer. During a Workflow model run, Workflow Persistence remains the
+sole owner of model recording output.
+
+## Migrating from 0.10
+
+- Replace `scientific_workflow::ArtifactDisposition` with
+  `ecological_model_core::artifact::ArtifactDisposition`.
+- Pass an artifact-root `&Path` to `persist_initial_state` or
+  `persist_interaction_matrix`; do not construct a Workflow `ExecutionScope`.
+- Pass the same root to verified loading. Serialized references now expose
+  `artifact_root()` and serialize `artifact_root`, not `execution_directory`.
+- Replace initial-state `rng_record()` with `rng_config()` and interaction
+  `generator_rng_record()` with `generator_rng_config()`. Both return the
+  resolved PiP method and seed directly.
+- Remove the old initial-state and interaction RNG namespace constants. The
+  domain identity/version live in the typed ecological provenance; PiP owns RNG
+  method identity and seed encoding.
+- Regenerate v1 initial-state documents and portable references. Version 0.11
+  deliberately provides no legacy parser or alias.
 
 Interaction matrices are sampled before model-specific transformations are
 applied. Every entry of `RandomUniform` and `RandomGaussian`, including the
@@ -87,4 +164,6 @@ assert!(observer.is_some());
 ```
 
 The crate is a clean-start API. It does not read artifacts produced by the
-former `ecological-initial-state` crate.
+former `ecological-initial-state` crate or eco-core 0.10. Initial-state
+documents use `ecological.initial-state.v2`; serialized initial-state and
+interaction references use their respective `*.v2` formats.
