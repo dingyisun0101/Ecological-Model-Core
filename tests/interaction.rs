@@ -309,7 +309,7 @@ fn derived_provenance_survives_verified_artifact_round_trip() {
 }
 
 #[test]
-fn obsolete_dispatcher_specific_recipe_is_rejected() {
+fn obsolete_application_specific_recipe_is_rejected() {
     let legacy = serde_json::json!({
         "family": "antisymmetric_gaussian",
         "scale": 1.0

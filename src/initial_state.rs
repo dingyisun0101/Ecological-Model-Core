@@ -403,11 +403,7 @@ impl InitialStateArtifactReference {
                 path: PathBuf::from("<initial-state-artifact-reference>"),
                 source,
             })?;
-        if reference.format != INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT
-            || reference.artifact_root.as_os_str().is_empty()
-        {
-            return Err(InitialStateError::InvalidArtifactReference);
-        }
+        reference.validate()?;
         Ok(reference)
     }
 
@@ -423,11 +419,7 @@ impl InitialStateArtifactReference {
                 path: path.clone(),
                 source,
             })?;
-        if reference.format != INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT
-            || reference.artifact_root.as_os_str().is_empty()
-        {
-            return Err(InitialStateError::InvalidArtifactReference);
-        }
+        reference.validate()?;
         Ok(reference)
     }
 
@@ -436,7 +428,19 @@ impl InitialStateArtifactReference {
     }
 
     pub fn resolve(&self) -> Result<InitialState, InitialStateError> {
+        self.validate()?;
         load_verified_initial_state(&self.artifact_root, &self.descriptor)
+    }
+
+    /// Validates the reference envelope without reading the artifact.
+    pub fn validate(&self) -> Result<(), InitialStateError> {
+        if self.format != INITIAL_STATE_ARTIFACT_REFERENCE_FORMAT
+            || self.artifact_root.as_os_str().is_empty()
+        {
+            Err(InitialStateError::InvalidArtifactReference)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn artifact_root(&self) -> &Path {

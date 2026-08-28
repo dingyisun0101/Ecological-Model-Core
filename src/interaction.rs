@@ -882,6 +882,7 @@ impl InteractionArtifactReference {
     }
 
     pub fn resolve(&self) -> Result<InteractionMatrix, InteractionArtifactLoadError> {
+        self.validate()?;
         load_verified_interaction_matrix(&self.artifact_root, &self.descriptor)
     }
 
@@ -893,7 +894,8 @@ impl InteractionArtifactReference {
         &self.descriptor
     }
 
-    fn validate(&self) -> Result<(), InteractionArtifactLoadError> {
+    /// Validates the reference envelope without reading the artifact.
+    pub fn validate(&self) -> Result<(), InteractionArtifactLoadError> {
         if self.format != INTERACTION_ARTIFACT_REFERENCE_FORMAT
             || self.artifact_root.as_os_str().is_empty()
         {

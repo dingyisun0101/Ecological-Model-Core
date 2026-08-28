@@ -43,6 +43,16 @@ Callers provide ordinary resolved values (`Vec`, slices, `PathBuf`, recipes,
 and descriptors); an orchestrator or model owns configuration decoding and
 path-key resolution.
 
+For comparative applications, `inputs::EcologicalInputs` is the canonical
+model-neutral envelope. It pairs one final model-ready
+`InteractionArtifactReference` with one `InitialStateArtifactReference`,
+validates their shared taxon dimension without IO, and resolves both with full
+digest verification. Multiple models can receive the same initial-state
+reference: a categorical model consumes its space and counts, while a
+continuous model derives exact frequencies from that same state. The envelope
+does not select recipes, apply model-specific transformations, or own runtime
+configuration.
+
 ## Installation
 
 ```toml
@@ -132,7 +142,7 @@ let lattice = recipe.generate(8)?
     .abs()?
     .normalize(1.0)?;
 lattice.ensure_max_abs_at_most(1.0)?;
-let glv = lattice.antisymmetrize()?;
+let antisymmetric = lattice.antisymmetrize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 

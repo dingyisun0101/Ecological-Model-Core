@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "ecological-model-core"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "physics_in_parallel",
  "serde",

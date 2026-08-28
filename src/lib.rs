@@ -4,6 +4,7 @@
 
 pub mod artifact;
 pub mod initial_state;
+pub mod inputs;
 pub mod interaction;
 pub mod terminal_state;
 pub mod trajectory;
