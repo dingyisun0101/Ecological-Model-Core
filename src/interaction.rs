@@ -22,7 +22,7 @@ pub const INTERACTION_ARTIFACT_REFERENCE_FORMAT: &str =
 
 pub const INTERACTION_MATRIX_FORMAT: &str = "ecological.interaction-matrix.v2";
 pub const INTERACTION_MATRIX_METADATA_KEY: &str = "interaction_matrix";
-pub const INTERACTION_GENERATOR_IDENTITY: &str = "ecological_model_core.interaction_matrix";
+pub const INTERACTION_GENERATOR_IDENTITY: &str = "ecological_state_toolkit.interaction_matrix";
 pub const INTERACTION_GENERATOR_VERSION: &str = "4";
 
 const DOMAIN_INDEPENDENT: u64 = 0x73d8_ba6e_209f_54c1;

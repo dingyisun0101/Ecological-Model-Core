@@ -1,0 +1,25 @@
+# Ecological State Toolkit for Python
+
+This companion distribution converts completed Scientific Workflow JSONL
+recordings into verified, C-contiguous NumPy arrays. Applications describe
+streams and ecological encodings through the typed library API; the command
+line interface accepts the same information in a conversion-request document.
+
+The package contains no Dispatcher, GLV, Simulator, or study-specific logic.
+It is analysis tooling, not a Workflow execution unit.
+
+The public API is:
+
+- `ArrayEncoding`: names the supported stable JSON-to-array decoders;
+- `FieldSpec(name, encoding, output, category_count=None)`: selects one field
+  and its output basename;
+- `StreamSpec(name, fields)`: groups fields from one Workflow stream;
+- `RecordingSpec(recording, identity, streams, metadata={})`: describes one
+  completed recording using a `pathlib.Path`;
+- `convert_recordings(recordings, output_directory, workers=4,
+  progress=None)`: verifies and converts a batch concurrently;
+- `ConvertedRecording`: returns source checksums, user/caller metadata, and
+  typed `ArrayDescriptor` values.
+
+The `ecological-state-convert` command accepts `--request`, `--output`, and
+`--workers`; it publishes the same output through the library API.

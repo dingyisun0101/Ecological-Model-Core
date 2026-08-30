@@ -1,7 +1,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ecological_model_core::trajectory::{
+use ecological_state_toolkit::trajectory::{
     AbundanceView, EquilibriumEvidence, TerminalPolicy, TrajectoryObservation,
     TrajectoryObservationPolicy, TrajectoryObserver,
 };

@@ -1,7 +1,7 @@
-use ecological_model_core::terminal_state::{
+use ecological_state_toolkit::terminal_state::{
     StopReason, TerminalClassification, TerminationSignal,
 };
-use ecological_model_core::trajectory::{
+use ecological_state_toolkit::trajectory::{
     AbundanceView, DetectionPolicy, EquilibriumEvidence, EquilibriumPolicy, PeriodicOrbitPolicy,
     ResidualTolerance, TerminalPolicy, TrajectoryObservation, TrajectoryObservationPolicy,
     TrajectoryObserver,
@@ -155,7 +155,7 @@ fn explicit_absorption_yields_the_exact_count_composition() {
         TerminalClassification::AbsorbingState
     );
     assert_eq!(terminal.composition(), &[0.25, 0.75]);
-    let decoded = ecological_model_core::terminal_state::TerminalState::from_json_bytes(
+    let decoded = ecological_state_toolkit::terminal_state::TerminalState::from_json_bytes(
         &terminal.to_json_bytes().unwrap(),
     )
     .unwrap();

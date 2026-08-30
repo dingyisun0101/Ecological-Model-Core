@@ -1,4 +1,4 @@
-use ecological_model_core::state_schema::{ECOLOGICAL_STATE_SCHEMA_ID, ecological_state_schema};
+use ecological_state_toolkit::state_schema::{ECOLOGICAL_STATE_SCHEMA_ID, ecological_state_schema};
 
 #[test]
 fn canonical_ecological_schema_is_one_embedded_provider() {

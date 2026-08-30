@@ -1,14 +1,15 @@
-# Ecological Model Core
+# Ecological State Toolkit
 
-> **Breaking 0.11 update:** version 0.11.0 targets PiP 3.7 and removes the
-> obsolete Scientific Workflow 0.9 artifact, execution-scope, and RNG-record
-> contracts. There are no compatibility aliases. Consumers should pass
-> explicit artifact-root paths and use the resolved PiP `RngConfig` retained by
-> generated ecological values.
+> **Breaking 0.12 update:** `ecological-model-core` is superseded by the
+> `ecological-state-toolkit` crate and `ecological_state_toolkit` Rust/Python
+> import. There are no compatibility aliases. The ecological schema provider
+> identity is now `ecological-state-toolkit.ecological-state.v1`.
 
-Shared scientific primitives for ecological models that use different numerical
-methods. The crate deliberately contains no simulation engine or Workflow task:
-each downstream model remains an independent runtime-integrated crate.
+An end-to-end, model-neutral package for ecological state construction,
+validation, schema provision, trajectory products, and conversion of completed
+Workflow recordings into analysis-efficient NumPy arrays. It deliberately
+contains no simulation engine or Workflow task: each downstream model and study
+remains independently runtime-integrated.
 
 The public modules are:
 
@@ -17,6 +18,8 @@ The public modules are:
   modules that know the document semantics;
 - `initial_state`: reproducible categorical lattice initial states and verified
   ecological input artifacts;
+- `inputs`: the canonical validated `(InteractionMatrix, InitialState)`
+  envelope shared by independent engines;
 - `interaction`: validated ecological interaction matrices, reproducible random
   sources, and composable PiP-backed transformations;
 - `state_schema`: the sole embedded canonical ecological Workflow state schema
@@ -25,6 +28,9 @@ The public modules are:
   disabled, terminal-only, and detection modes;
 - `terminal_state`: validated terminal composition and auditable equilibrium,
   periodic-orbit, and absorbing-state results.
+
+The companion Python module `ecological_state_toolkit` exposes generic,
+verified recording conversion; its API is documented below.
 
 Construction parameters are called *recipes*, keeping scientific realization
 instructions distinct from Workflow configuration. Engines submit borrowed
@@ -39,7 +45,7 @@ the complete row-major lattice tensor. The resulting counts differ by at most
 one, and `InitialState::frequencies` exposes their exact aggregate composition
 for a continuous model using the same initial condition.
 
-The crate depends on Scientific Workflow only for the neutral
+The Rust crate depends on Scientific Workflow only for the neutral
 `StateSchemaProvider` descriptor. It never reads or resolves a Workflow
 project, implements an execution unit, or writes a Workflow recording. It has
 no dependency on Dispatcher, GLV, Simulator, or another private downstream
@@ -59,16 +65,23 @@ configuration.
 
 After verification, `ResolvedEcologicalInputs` is exactly the typed wrapper
 around `(InteractionMatrix, InitialState)`. Models may borrow the two values or
-call `into_parts()` to take that tuple directly; Eco Core does not construct a
-GLV- or Simulator-specific state around it.
+call `into_parts()` to take that tuple directly; Ecological State Toolkit does
+not construct a GLV- or Simulator-specific state around it.
 
 ## Installation
 
 ```toml
 [dependencies]
-ecological-model-core = "0.11.2"
+ecological-state-toolkit = "0.12.0"
 scientific-workflow = "0.11.5"
 physics_in_parallel = "3.7.0"
+```
+
+The companion Python distribution is installed from the same tagged source:
+
+```text
+python -m pip install \
+  "ecological-state-toolkit @ git+https://github.com/dingyisun0101/Ecological-Model-Core.git@v0.12.0#subdirectory=python"
 ```
 
 Use this crate when multiple ecological models need the same validated
@@ -78,18 +91,85 @@ dependency.
 
 When used with Scientific Workflow 0.11.5, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
-still directly owns its Workflow `SystemState`; Eco Core owns only the standard
-layout supplied to that state, not the model, observation plan, recording
-destination, or runtime.
+still directly owns its Workflow `SystemState`; Ecological State Toolkit owns
+only the standard layout supplied to that state, not the model, observation
+plan, recording destination, or runtime.
+
+## Recording conversion
+
+The Python distribution is the analysis-facing half of the toolkit. It uses
+the official Workflow reader to verify every JSONL chunk and writes each
+selected stream directly into atomic, C-contiguous NPY memmaps. Conversion is
+bounded by a caller-selected process count and resumes at recording
+granularity only when both the source metadata checksum and complete
+conversion request still match.
+
+Applications use the library API as the stable boundary:
+
+```python
+from pathlib import Path
+
+from ecological_state_toolkit import (
+    ArrayEncoding,
+    FieldSpec,
+    RecordingSpec,
+    StreamSpec,
+    convert_recordings,
+)
+
+specification = RecordingSpec(
+    recording=Path("recording/member-000000"),
+    identity="reference",
+    streams=(
+        StreamSpec(
+            "signal",
+            (
+                FieldSpec("abundance", ArrayEncoding.TENSOR_F64, "values"),
+                FieldSpec("total", ArrayEncoding.FLOAT_SCALAR, "total"),
+            ),
+        ),
+    ),
+    metadata={"role": "reference"},
+)
+converted = convert_recordings(
+    (specification,), Path("processed"), workers=4
+)
+signal = converted[0].arrays["signal_values"]
+```
+
+`RecordingSpec` identifies one completed recording, its generic stream
+contracts, and optional JSON metadata retained for its caller. `StreamSpec`
+names one Workflow stream. `FieldSpec` maps a field to an output basename and
+one `ArrayEncoding`: f64 tensor, nonnegative f64 vector, nonnegative u32
+vector, categorical lattice, float scalar, or integer scalar. Categorical
+lattices additionally require `category_count`, which determines validation
+and the smallest safe unsigned storage dtype. `convert_recordings` takes a
+sequence of specifications, an output `Path`, a positive worker count, and an
+optional parent-process progress callback. It returns typed
+`ConvertedRecording` values with array descriptors, source checksums, source
+user metadata, and caller metadata.
+
+For shell use, `ecological-state-convert --request REQUEST.json --output DIR`
+accepts an `ecological-state-toolkit.conversion-request.v1` document and
+publishes a generic batch manifest. This CLI is deliberately a thin adapter
+over the library, not a raw script API.
+
+Conversion is not an `ExecutionUnit`: it consumes finalized recordings after
+scientific execution and has no evolving state, step, completion, or ensemble
+semantics. A study may call the library after its export phase and then add its
+own selection, pairing, and manifest semantics. If conversion later needs to
+be scheduled independently, a study-owned program/task adapter should invoke
+this same library without moving study semantics into the toolkit.
 
 ## Canonical ecological state schema
 
-Eco Core is the sole source of `schemas/ecological_state.json`. A receiving
-model does not vendor or load another copy. It forwards the provider from its
-Workflow execution-unit implementation:
+Ecological State Toolkit is the sole source of
+`schemas/ecological_state.json`. A receiving model does not vendor or load
+another copy. It forwards the provider from its Workflow execution-unit
+implementation:
 
 ```rust,ignore
-use ecological_model_core::state_schema::ecological_state_schema;
+use ecological_state_toolkit::state_schema::ecological_state_schema;
 use scientific_workflow::prelude::*;
 
 impl ExecutionUnit for EcologicalUnit {
@@ -106,7 +186,7 @@ impl ExecutionUnit for EcologicalUnit {
 The model's `study.json` task can then omit `state`, and `paths.states` can be
 absent when no project-owned schema is needed. Study validates the embedded
 document once, passes the resulting `SystemStateSchema` directly to the unit,
-and records `ecological-model-core.ecological-state.v1` as state provenance.
+and records `ecological-state-toolkit.ecological-state.v1` as state provenance.
 An explicit project state remains a deliberate override.
 
 ## Verified ecological inputs
@@ -117,8 +197,8 @@ content-addressed inputs beneath an explicit artifact root:
 ```rust,no_run
 use std::path::Path;
 
-use ecological_model_core::artifact::ArtifactDisposition;
-use ecological_model_core::initial_state::{
+use ecological_state_toolkit::artifact::ArtifactDisposition;
+use ecological_state_toolkit::initial_state::{
     InitialStateRecipe, persist_initial_state, load_verified_initial_state,
 };
 use physics_in_parallel::prelude::basic::{RngConfig, SquareLatticeConfig};
@@ -147,7 +227,7 @@ sole owner of model recording output.
 ## Migrating from 0.10
 
 - Replace `scientific_workflow::ArtifactDisposition` with
-  `ecological_model_core::artifact::ArtifactDisposition`.
+  `ecological_state_toolkit::artifact::ArtifactDisposition`.
 - Pass an artifact-root `&Path` to `persist_initial_state` or
   `persist_interaction_matrix`; do not construct a Workflow `ExecutionScope`.
 - Pass the same root to verified loading. Serialized references now expose
@@ -167,7 +247,7 @@ diagonal, is sampled independently. Transformations return new matrices, leave
 their sources unchanged, and retain a complete derived-provenance chain:
 
 ```rust
-use ecological_model_core::interaction::InteractionMatrixRecipe;
+use ecological_state_toolkit::interaction::InteractionMatrixRecipe;
 use physics_in_parallel::prelude::basic::RngConfig;
 
 let recipe = InteractionMatrixRecipe::RandomGaussian {
@@ -197,7 +277,7 @@ to PiP. `mul_vectors_into` applies the same matrix to a contiguous batch while
 reusing caller-owned output storage.
 
 ```rust
-use ecological_model_core::trajectory::{
+use ecological_state_toolkit::trajectory::{
     TerminalPolicy, TrajectoryObservationPolicy, TrajectoryObserver,
 };
 
@@ -212,6 +292,6 @@ assert!(observer.is_some());
 ```
 
 The crate is a clean-start API. It does not read artifacts produced by the
-former `ecological-initial-state` crate or eco-core 0.10. Initial-state
-documents use `ecological.initial-state.v2`; serialized initial-state and
-interaction references use their respective `*.v2` formats.
+former `ecological-initial-state` crate or `ecological-model-core` 0.10.
+Initial-state documents use `ecological.initial-state.v2`; serialized
+initial-state and interaction references use their respective `*.v2` formats.

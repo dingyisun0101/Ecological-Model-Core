@@ -1,7 +1,7 @@
 use std::fs;
 
-use ecological_model_core::artifact::{ArtifactDisposition, ArtifactLoadError};
-use ecological_model_core::initial_state::{
+use ecological_state_toolkit::artifact::{ArtifactDisposition, ArtifactLoadError};
+use ecological_state_toolkit::initial_state::{
     DistributionSource, INITIAL_STATE_FORMAT, InitialStateArtifactReference, InitialStateError,
     InitialStateRecipe, InitializationMethod, load_verified_initial_state, persist_initial_state,
 };

@@ -265,8 +265,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "ecological-model-core"
-version = "0.11.2"
+name = "ecological-state-toolkit"
+version = "0.12.0"
 dependencies = [
  "physics_in_parallel",
  "scientific-workflow",

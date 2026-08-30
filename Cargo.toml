@@ -1,17 +1,17 @@
 [package]
-name = "ecological-model-core"
-version = "0.11.2"
+name = "ecological-state-toolkit"
+version = "0.12.0"
 edition = "2024"
 rust-version = "1.97"
-description = "Shared ecological initial states, interactions, trajectory observation, and terminal products"
+description = "End-to-end ecological state construction, schemas, observation, and analysis conversion"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/dingyisun0101/Ecological-Model-Core"
 homepage = "https://github.com/dingyisun0101/Ecological-Model-Core"
-documentation = "https://docs.rs/ecological-model-core"
+documentation = "https://docs.rs/ecological-state-toolkit"
 keywords = ["ecology", "simulation", "dynamical-systems", "scientific"]
 categories = ["science", "simulation"]
-include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "python/**/*.py", "python/pyproject.toml", "python/README.md", "README.md", "LICENSE"]
 
 [dependencies]
 physics_in_parallel = "3.7.0"

@@ -1,5 +1,5 @@
-use ecological_model_core::artifact::ArtifactDisposition;
-use ecological_model_core::interaction::{
+use ecological_state_toolkit::artifact::ArtifactDisposition;
+use ecological_state_toolkit::interaction::{
     DiagonalPolicy, InteractionArtifactReference, InteractionMatrix, InteractionMatrixRecipe,
     InteractionProvenance, InteractionSourceKind, InteractionTransformation, MatrixNormalization,
     SignStructure,
@@ -97,7 +97,7 @@ fn transformations_compose_pip_matrix_operations_without_mutating_source() {
     assert!(clamped.ensure_max_abs_at_most(10.0).is_ok());
     assert!(matches!(
         lower_clamped.ensure_max_abs_at_most(11.0),
-        Err(ecological_model_core::interaction::InteractionMatrixError::MaximumAbsoluteEntryExceeded {
+        Err(ecological_state_toolkit::interaction::InteractionMatrixError::MaximumAbsoluteEntryExceeded {
             threshold: 11.0,
             maximum: 12.0,
         })
@@ -127,7 +127,7 @@ fn matrix_constructors_infer_species_and_reject_non_square_inputs() {
         InteractionMatrix::from_matrix(DenseMatrix::from_vec(2, 3, vec![0.0; 6])).unwrap_err();
     assert!(matches!(
         error,
-        ecological_model_core::interaction::InteractionMatrixError::NonSquare {
+        ecological_state_toolkit::interaction::InteractionMatrixError::NonSquare {
             rows: 2,
             columns: 3
         }
@@ -256,9 +256,9 @@ fn derived_provenance_survives_verified_artifact_round_trip() {
     .scale(0.25)
     .unwrap();
     let persisted =
-        ecological_model_core::interaction::persist_interaction_matrix(&artifact_root, &matrix)
+        ecological_state_toolkit::interaction::persist_interaction_matrix(&artifact_root, &matrix)
             .unwrap();
-    let loaded = ecological_model_core::interaction::load_verified_interaction_matrix(
+    let loaded = ecological_state_toolkit::interaction::load_verified_interaction_matrix(
         &artifact_root,
         persisted.descriptor(),
     )
@@ -277,7 +277,7 @@ fn derived_provenance_survives_verified_artifact_round_trip() {
     assert!(loaded.generator_rng_config().unwrap().method().is_some());
 
     let reused =
-        ecological_model_core::interaction::persist_interaction_matrix(&artifact_root, &matrix)
+        ecological_state_toolkit::interaction::persist_interaction_matrix(&artifact_root, &matrix)
             .unwrap();
     assert_eq!(reused.disposition(), ArtifactDisposition::Reused);
     assert_eq!(reused.descriptor(), persisted.descriptor());
