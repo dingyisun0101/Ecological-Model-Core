@@ -73,6 +73,19 @@ def _recording(root: Path) -> None:
 
 
 class RecordingConversionTests(unittest.TestCase):
+    def test_coordinate_output_names_are_reserved(self) -> None:
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            StreamSpec(
+                "signal",
+                (
+                    FieldSpec(
+                        "abundance",
+                        ArrayEncoding.NONNEGATIVE_U32_VECTOR,
+                        "iterations",
+                    ),
+                ),
+            )
+
     def test_parallel_conversion_is_contiguous_and_resumable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

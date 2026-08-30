@@ -31,6 +31,7 @@ class ArrayEncoding(StrEnum):
     """Supported stable ecological encodings in Workflow JSON values."""
 
     TENSOR_F64 = "tensor_f64"
+    NONNEGATIVE_TENSOR_F64 = "nonnegative_tensor_f64"
     NONNEGATIVE_F64_VECTOR = "nonnegative_f64_vector"
     NONNEGATIVE_U32_VECTOR = "nonnegative_u32_vector"
     CATEGORICAL_LATTICE = "categorical_lattice"
@@ -76,6 +77,9 @@ class StreamSpec:
         outputs = [item.output for item in self.fields]
         if len(names) != len(set(names)) or len(outputs) != len(set(outputs)):
             raise ValueError("stream field names and outputs must be unique")
+        reserved = {"iterations", "physical_times"}.intersection(outputs)
+        if reserved:
+            raise ValueError(f"stream field outputs use reserved names: {sorted(reserved)}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +245,13 @@ def _decode_tensor_f64(value: object) -> np.ndarray:
     return np.ascontiguousarray(data.reshape(shape))
 
 
+def _decode_nonnegative_tensor_f64(value: object) -> np.ndarray:
+    data = _decode_tensor_f64(value)
+    if np.any(data < 0):
+        raise ConversionError("tensor contains negative values")
+    return data
+
+
 def _decode_nonnegative_f64_vector(value: object) -> np.ndarray:
     data = np.asarray(_array(value, "nonnegative f64 vector"), dtype=np.float64)
     if data.ndim != 1 or data.size == 0 or np.any(~np.isfinite(data)) or np.any(data < 0):
@@ -290,9 +301,26 @@ def _decode_categorical_lattice(value: object, category_count: int) -> np.ndarra
     return np.ascontiguousarray(data.reshape(shape), dtype=dtype)
 
 
+def _decode_float_scalar(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConversionError("value is not a numeric scalar")
+    decoded = float(value)
+    if not np.isfinite(decoded):
+        raise ConversionError("float scalar is not finite")
+    return decoded
+
+
+def _decode_integer_scalar(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ConversionError("value is not a nonnegative integer scalar")
+    return value
+
+
 def _decoder(spec: FieldSpec) -> Callable[[object], object]:
     if spec.encoding is ArrayEncoding.TENSOR_F64:
         return _decode_tensor_f64
+    if spec.encoding is ArrayEncoding.NONNEGATIVE_TENSOR_F64:
+        return _decode_nonnegative_tensor_f64
     if spec.encoding is ArrayEncoding.NONNEGATIVE_F64_VECTOR:
         return _decode_nonnegative_f64_vector
     if spec.encoding is ArrayEncoding.NONNEGATIVE_U32_VECTOR:
@@ -301,9 +329,9 @@ def _decoder(spec: FieldSpec) -> Callable[[object], object]:
         assert spec.category_count is not None
         return partial(_decode_categorical_lattice, category_count=spec.category_count)
     if spec.encoding is ArrayEncoding.FLOAT_SCALAR:
-        return float
+        return _decode_float_scalar
     if spec.encoding is ArrayEncoding.INTEGER_SCALAR:
-        return int
+        return _decode_integer_scalar
     raise AssertionError(f"unhandled encoding {spec.encoding}")
 
 
@@ -528,15 +556,16 @@ def _convert_one(job: tuple[int, RecordingSpec, Path]) -> ConvertedRecording:
     temporary.mkdir(parents=True)
     try:
         decoders: dict[str, Callable[[object], object]] = {}
-        encodings: dict[str, ArrayEncoding] = {}
+        encodings: dict[str, tuple[ArrayEncoding, int | None]] = {}
         for stream in spec.streams:
             for item in stream.fields:
+                contract = (item.encoding, item.category_count)
                 previous = encodings.get(item.name)
-                if previous is not None and previous is not item.encoding:
+                if previous is not None and previous != contract:
                     raise ConversionError(
                         f"field {item.name!r} has incompatible encodings across streams"
                     )
-                encodings[item.name] = item.encoding
+                encodings[item.name] = contract
                 decoders[item.name] = _decoder(item)
         reader = open_completed_recording(recording, decoders=decoders)
         for stream in spec.streams:

@@ -72,7 +72,7 @@ not construct a GLV- or Simulator-specific state around it.
 
 ```toml
 [dependencies]
-ecological-state-toolkit = "0.12.1"
+ecological-state-toolkit = "0.12.2"
 scientific-workflow = "0.11.5"
 physics_in_parallel = "3.7.0"
 ```
@@ -81,7 +81,7 @@ The companion Python distribution is installed from the same tagged source:
 
 ```text
 python -m pip install \
-  "ecological-state-toolkit @ git+https://github.com/dingyisun0101/Ecological-Model-Core.git@v0.12.1#subdirectory=python"
+  "ecological-state-toolkit @ git+https://github.com/dingyisun0101/Ecological-Model-Core.git@v0.12.2#subdirectory=python"
 ```
 
 Use this crate when multiple ecological models need the same validated
@@ -140,8 +140,9 @@ signal = converted[0].arrays["signal_values"]
 `RecordingSpec` identifies one completed recording, its generic stream
 contracts, and optional JSON metadata retained for its caller. `StreamSpec`
 names one Workflow stream. `FieldSpec` maps a field to an output basename and
-one `ArrayEncoding`: f64 tensor, nonnegative f64 vector, nonnegative u32
-vector, categorical lattice, float scalar, or integer scalar. Categorical
+one `ArrayEncoding`: f64 tensor, nonnegative f64 tensor/vector, nonnegative
+u32 vector, categorical lattice, finite float scalar, or nonnegative integer
+scalar. Categorical
 lattices additionally require `category_count`, which determines validation
 and the smallest safe unsigned storage dtype. `convert_recordings` takes a
 sequence of specifications, an output `Path`, a positive worker count, and an
