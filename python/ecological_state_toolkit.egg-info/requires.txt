@@ -1,2 +1,0 @@
-numpy<3,>=2
-scientific-workflow-reader<0.4,>=0.1.1
