@@ -80,7 +80,7 @@ class RecordingConversionTests(unittest.TestCase):
             _recording(recording)
             spec = RecordingSpec(
                 recording=recording,
-                identity="member-a",
+                identity="phase/task/member-a",
                 streams=(
                     StreamSpec(
                         "signal",

@@ -72,7 +72,7 @@ not construct a GLV- or Simulator-specific state around it.
 
 ```toml
 [dependencies]
-ecological-state-toolkit = "0.12.0"
+ecological-state-toolkit = "0.12.1"
 scientific-workflow = "0.11.5"
 physics_in_parallel = "3.7.0"
 ```
@@ -81,7 +81,7 @@ The companion Python distribution is installed from the same tagged source:
 
 ```text
 python -m pip install \
-  "ecological-state-toolkit @ git+https://github.com/dingyisun0101/Ecological-Model-Core.git@v0.12.0#subdirectory=python"
+  "ecological-state-toolkit @ git+https://github.com/dingyisun0101/Ecological-Model-Core.git@v0.12.1#subdirectory=python"
 ```
 
 Use this crate when multiple ecological models need the same validated

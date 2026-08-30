@@ -90,7 +90,7 @@ class RecordingSpec:
     def __post_init__(self) -> None:
         if not isinstance(self.recording, Path):
             raise TypeError("recording must be pathlib.Path")
-        _identifier(self.identity, "recording identity")
+        _nonempty_string(self.identity, "recording identity")
         if not self.streams:
             raise ValueError("a recording must contain at least one stream")
         names = [item.name for item in self.streams]
@@ -154,6 +154,12 @@ def _identifier(value: object, label: str) -> str:
         character in value for character in ("/", "\\", "\0")
     ):
         raise ValueError(f"{label} must be a nonempty path-safe string")
+    return value
+
+
+def _nonempty_string(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} must be a nonempty string")
     return value
 
 
@@ -359,7 +365,7 @@ def _spec_from_document(value: object) -> RecordingSpec:
         raise ConversionError("recording path must be a nonempty string")
     return RecordingSpec(
         recording=Path(recording),
-        identity=_identifier(document.get("identity"), "recording identity"),
+        identity=_nonempty_string(document.get("identity"), "recording identity"),
         streams=tuple(streams),
         metadata=_object(document.get("metadata", {}), "recording metadata"),
     )

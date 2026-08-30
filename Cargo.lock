@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "ecological-state-toolkit"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "physics_in_parallel",
  "scientific-workflow",
