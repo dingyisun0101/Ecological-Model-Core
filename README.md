@@ -69,7 +69,7 @@ not construct a GLV- or Simulator-specific state around it.
 ```toml
 [dependencies]
 ecological-state-toolkit = "0.12.2"
-scientific-workflow = "0.13.1"
+scientific-workflow = "0.13.2"
 physics_in_parallel = "3.7.0"
 ```
 
@@ -78,7 +78,7 @@ initial-state, interaction, trajectory, or terminal-product semantics. A model
 that needs only one small local calculation may be clearer without the extra
 dependency.
 
-When used with Scientific Workflow 0.13.1, put recipes and other resolved
+When used with Scientific Workflow 0.13.2, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
 still directly owns its Workflow `SystemState`; Ecological State Toolkit owns
 only the standard layout supplied to that state, not the model, observation
