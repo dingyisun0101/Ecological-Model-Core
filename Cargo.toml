@@ -15,7 +15,7 @@ include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "python/**/*.py"
 
 [dependencies]
 physics_in_parallel = "4.0.0-alpha.2"
-scientific-workflow = "0.13.3"
+scientific-workflow = "0.13.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"

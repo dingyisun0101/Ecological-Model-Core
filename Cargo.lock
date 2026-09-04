@@ -885,9 +885,9 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "scientific-workflow"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a618a14a3b5656d0cad38fa720db02e47cbc8e5bc326051332cf165cf47ff1b6"
+checksum = "59bbfa81df72a3d75e7f1d839fb76f819ba0995cfca168b3d6c01cf4a85cfac9"
 dependencies = [
  "crossterm",
  "erased-serde",
