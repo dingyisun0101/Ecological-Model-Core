@@ -68,9 +68,9 @@ not construct a GLV- or Simulator-specific state around it.
 
 ```toml
 [dependencies]
-ecological-state-toolkit = "0.12.3"
-scientific-workflow = "0.13.2"
-physics_in_parallel = "3.7.0"
+ecological-state-toolkit = "0.13.0"
+scientific-workflow = "0.13.3"
+physics_in_parallel = "4.0.0-alpha.2"
 ```
 
 Use this crate when multiple ecological models need the same validated
@@ -78,7 +78,7 @@ initial-state, interaction, trajectory, or terminal-product semantics. A model
 that needs only one small local calculation may be clearer without the extra
 dependency.
 
-When used with Scientific Workflow 0.13.2, put recipes and other resolved
+When used with Scientific Workflow 0.13.3, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
 still directly owns its Workflow `SystemState`; Ecological State Toolkit owns
 only the standard layout supplied to that state, not the model, observation
@@ -124,11 +124,11 @@ use ecological_state_toolkit::artifact::ArtifactDisposition;
 use ecological_state_toolkit::initial_state::{
     InitialStateRecipe, persist_initial_state, load_verified_initial_state,
 };
-use physics_in_parallel::prelude::basic::{RngConfig, SquareLatticeConfig};
+use physics_in_parallel::prelude::basic::{ResolvedRng, RngMethod, SquareLatticeGeometry};
 
 let initial = InitialStateRecipe::BalancedUniform {
-    rng: RngConfig::new(Some(42), None),
-}.create(SquareLatticeConfig::periodic(&[8, 8]), 4)?;
+    rng: ResolvedRng::new(42, RngMethod::IndexedSplitMix64),
+}.create(SquareLatticeGeometry::periodic(&[8, 8])?, 4)?;
 let root = Path::new("prepared-inputs");
 let persisted = persist_initial_state(root, &initial)?;
 assert_eq!(persisted.disposition(), ArtifactDisposition::Created);
@@ -171,12 +171,12 @@ their sources unchanged, and retain a complete derived-provenance chain:
 
 ```rust
 use ecological_state_toolkit::interaction::InteractionMatrixRecipe;
-use physics_in_parallel::prelude::basic::RngConfig;
+use physics_in_parallel::prelude::basic::{ResolvedRng, RngMethod};
 
 let recipe = InteractionMatrixRecipe::RandomGaussian {
     mean: 0.0,
     standard_deviation: 1.0,
-    rng: RngConfig::new(Some(42), None),
+    rng: ResolvedRng::new(42, RngMethod::IndexedSplitMix64),
 };
 let lattice = recipe.generate(8)?
     .scale(0.5)?

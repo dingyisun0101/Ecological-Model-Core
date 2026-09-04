@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use physics_in_parallel::prelude::basic::{
-    DenseMatrix, MatrixError, RandType, RngConfig, RngConfigError, TensorRandError,
-    TensorRandFiller,
+    Backend, IndexedRng, Matrix, MatrixError, ResolvedRng, RngError, RngMethod,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -81,15 +80,15 @@ pub enum InteractionMatrixRecipe {
     RandomUniform {
         minimum: f64,
         maximum: f64,
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
     /// Independently sample every matrix entry from a Gaussian distribution.
     RandomGaussian {
         mean: f64,
         standard_deviation: f64,
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
     /// Gaussian reciprocal pairs with Pearson correlation in `[-1,1]`.
     CorrelatedGaussian {
@@ -102,8 +101,8 @@ pub enum InteractionMatrixRecipe {
         diagonal: DiagonalPolicy,
         #[serde(default = "sqrt_species")]
         normalization: MatrixNormalization,
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
     /// Pairwise signs constrained to a common ecological relationship class.
     SignStructuredGaussian {
@@ -115,8 +114,8 @@ pub enum InteractionMatrixRecipe {
         diagonal: DiagonalPolicy,
         #[serde(default = "sqrt_species")]
         normalization: MatrixNormalization,
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
 }
 
@@ -203,45 +202,38 @@ impl InteractionMatrixRecipe {
 
     pub fn generate(&self, species: usize) -> Result<InteractionMatrix, InteractionRecipeError> {
         self.validate(species)?;
-        let kind = match self {
+        let key = IndexedRng::new(self.rng())?;
+        let resolved_recipe = self.with_rng(key.resolved_rng());
+        let matrix_len = species
+            .checked_mul(species)
+            .ok_or(InteractionRecipeError::MatrixSizeOverflow { species })?;
+        let mut values = vec![0.0; matrix_len];
+        match &resolved_recipe {
             Self::RandomUniform {
                 minimum, maximum, ..
-            } => RandType::Uniform {
-                low: *minimum,
-                high: *maximum,
-            },
+            } => {
+                fill_indexed_uniform(
+                    &mut values,
+                    species,
+                    key,
+                    DOMAIN_INDEPENDENT ^ species as u64,
+                    *minimum,
+                    *maximum,
+                );
+            }
             Self::RandomGaussian {
                 mean,
                 standard_deviation,
                 ..
-            } => RandType::Normal {
-                mean: *mean,
-                std: *standard_deviation,
-            },
-            Self::CorrelatedGaussian { .. } | Self::SignStructuredGaussian { .. } => {
-                RandType::Normal {
-                    mean: 0.0,
-                    std: 1.0,
-                }
-            }
-        };
-        let mut filler = TensorRandFiller::try_new_indexed(kind, self.rng())?;
-        let resolved_recipe = self.with_rng(filler.rng_config());
-        let matrix_len = species
-            .checked_mul(species)
-            .ok_or(MatrixError::ShapeProductOverflow {
-                rows: species,
-                cols: species,
-            })?;
-        let mut values = vec![0.0; matrix_len];
-        match &resolved_recipe {
-            Self::RandomUniform { .. } | Self::RandomGaussian { .. } => {
-                filler.try_fill_slice_at_layout(
+            } => {
+                fill_indexed_normal(
                     &mut values,
                     species,
-                    0,
+                    key,
                     DOMAIN_INDEPENDENT ^ species as u64,
-                )?;
+                    *mean,
+                    *standard_deviation,
+                );
             }
             Self::CorrelatedGaussian {
                 mean,
@@ -252,7 +244,7 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                let samples = sample_structured_inputs(&mut filler, species, matrix_len)?;
+                let samples = sample_structured_inputs(key, species, matrix_len);
                 let first_normal = samples.first_normal;
                 let second_normal = samples.second_normal;
                 let connection_uniform = samples.connection_uniform;
@@ -289,7 +281,7 @@ impl InteractionMatrixRecipe {
                 normalization,
                 ..
             } => {
-                let samples = sample_structured_inputs(&mut filler, species, matrix_len)?;
+                let samples = sample_structured_inputs(key, species, matrix_len);
                 let first_normal = samples.first_normal;
                 let second_normal = samples.second_normal;
                 let connection_uniform = samples.connection_uniform;
@@ -324,15 +316,15 @@ impl InteractionMatrixRecipe {
             INTERACTION_GENERATOR_IDENTITY,
             INTERACTION_GENERATOR_VERSION,
             serde_json::to_value(&resolved_recipe)?,
-            Some(filler.rng_config()),
+            Some(key.resolved_rng()),
         )?;
         Ok(InteractionMatrix::from_generated(
-            DenseMatrix::try_from_vec(species, species, values)?,
+            Matrix::from_values(species, species, Backend::Dense, values)?,
             generator,
         )?)
     }
 
-    pub const fn rng(&self) -> RngConfig {
+    pub const fn rng(&self) -> ResolvedRng {
         match self {
             Self::RandomUniform { rng, .. }
             | Self::RandomGaussian { rng, .. }
@@ -341,7 +333,7 @@ impl InteractionMatrixRecipe {
         }
     }
 
-    fn with_rng(&self, resolved: RngConfig) -> Self {
+    fn with_rng(&self, resolved: ResolvedRng) -> Self {
         let mut recipe = self.clone();
         match &mut recipe {
             Self::RandomUniform { rng, .. }
@@ -360,40 +352,88 @@ struct StructuredSamples {
 }
 
 fn sample_structured_inputs(
-    filler: &mut TensorRandFiller,
+    key: IndexedRng,
     species: usize,
     matrix_len: usize,
-) -> Result<StructuredSamples, TensorRandError> {
+) -> StructuredSamples {
     let mut first_normal = vec![0.0; matrix_len];
     let mut second_normal = vec![0.0; matrix_len];
     let mut connection_uniform = vec![0.0; matrix_len];
-    filler.try_fill_slice_at_layout(
+    fill_indexed_normal(
         &mut first_normal,
         species,
-        0,
+        key,
         DOMAIN_FIRST_NORMAL ^ species as u64,
-    )?;
-    filler.try_fill_slice_at_layout(
+        0.0,
+        1.0,
+    );
+    fill_indexed_normal(
         &mut second_normal,
         species,
-        0,
+        key,
         DOMAIN_SECOND_NORMAL ^ species as u64,
-    )?;
-    filler.set_kind(RandType::Uniform {
-        low: 0.0,
-        high: 1.0,
-    });
-    filler.try_fill_slice_at_layout(
+        0.0,
+        1.0,
+    );
+    fill_indexed_uniform(
         &mut connection_uniform,
         species,
-        0,
+        key,
         DOMAIN_CONNECTANCE ^ species as u64,
-    )?;
-    Ok(StructuredSamples {
+        0.0,
+        1.0,
+    );
+    StructuredSamples {
         first_normal,
         second_normal,
         connection_uniform,
-    })
+    }
+}
+
+fn fill_indexed_uniform(
+    values: &mut [f64],
+    components: usize,
+    key: IndexedRng,
+    domain: u64,
+    minimum: f64,
+    maximum: f64,
+) {
+    let width = maximum - minimum;
+    for (index, value) in values.iter_mut().enumerate() {
+        *value = minimum
+            + width
+                * key.unit_f64(
+                    0,
+                    domain,
+                    (index / components) as u64,
+                    (index % components) as u64,
+                    0,
+                );
+    }
+}
+
+fn fill_indexed_normal(
+    values: &mut [f64],
+    components: usize,
+    key: IndexedRng,
+    domain: u64,
+    mean: f64,
+    standard_deviation: f64,
+) {
+    for (index, value) in values.iter_mut().enumerate() {
+        *value = mean
+            + standard_deviation
+                * key.standard_normal(
+                    0,
+                    domain,
+                    (index / components) as u64,
+                    (index % components) as u64,
+                );
+    }
+}
+
+fn default_indexed_rng() -> ResolvedRng {
+    ResolvedRng::from_entropy(RngMethod::IndexedSplitMix64)
 }
 
 fn fill_diagonal(values: &mut [f64], species: usize, diagonal: f64) {
@@ -434,24 +474,24 @@ fn require_probability(value: f64) -> Result<(), InteractionRecipeError> {
 
 #[derive(Clone, Debug)]
 pub struct InteractionMatrix {
-    values: Arc<DenseMatrix<f64>>,
+    values: Arc<Matrix<f64>>,
     provenance: InteractionProvenance,
 }
 
 impl InteractionMatrix {
-    pub fn from_matrix(values: DenseMatrix<f64>) -> Result<Self, InteractionMatrixError> {
+    pub fn from_matrix(values: Matrix<f64>) -> Result<Self, InteractionMatrixError> {
         Self::resolve(
             Arc::new(values),
             InteractionProvenance::InMemory { label: None },
         )
     }
 
-    pub fn from_shared(values: Arc<DenseMatrix<f64>>) -> Result<Self, InteractionMatrixError> {
+    pub fn from_shared(values: Arc<Matrix<f64>>) -> Result<Self, InteractionMatrixError> {
         Self::resolve(values, InteractionProvenance::InMemory { label: None })
     }
 
     pub fn from_labeled_matrix(
-        values: DenseMatrix<f64>,
+        values: Matrix<f64>,
         label: impl Into<String>,
     ) -> Result<Self, InteractionMatrixError> {
         let label = label.into();
@@ -479,9 +519,10 @@ impl InteractionMatrix {
                 });
             }
         }
-        let values = DenseMatrix::try_from_vec(
+        let values = Matrix::from_values(
             row_count,
             column_count,
+            Backend::Dense,
             rows.into_iter().flatten().collect(),
         )?;
         Self::resolve(Arc::new(values), InteractionProvenance::Inline)
@@ -501,7 +542,7 @@ impl InteractionMatrix {
     }
 
     pub fn from_generated(
-        values: DenseMatrix<f64>,
+        values: Matrix<f64>,
         generator: GeneratorProvenance,
     ) -> Result<Self, InteractionMatrixError> {
         Self::resolve(
@@ -513,15 +554,17 @@ impl InteractionMatrix {
     pub fn species(&self) -> usize {
         self.values.rows()
     }
-    pub fn values(&self) -> &DenseMatrix<f64> {
+    pub fn values(&self) -> &Matrix<f64> {
         &self.values
     }
-    pub fn shared_values(&self) -> Arc<DenseMatrix<f64>> {
+    pub fn shared_values(&self) -> Arc<Matrix<f64>> {
         Arc::clone(&self.values)
     }
     #[inline]
     pub fn coefficient(&self, row: usize, column: usize) -> f64 {
-        self.values.get(row as isize, column as isize)
+        self.values
+            .get(row, column)
+            .expect("validated interaction coordinate")
     }
     #[inline]
     pub fn mul_vector_into(&self, input: &[f64], output: &mut [f64]) -> Result<(), MatrixError> {
@@ -537,8 +580,8 @@ impl InteractionMatrix {
     }
     /// Return `A - A^T` from this exact matrix realization.
     pub fn antisymmetrize(&self) -> Result<Self, InteractionMatrixError> {
-        let transposed = self.values.transpose();
-        let values = self.values.sub(&transposed);
+        let transposed = self.values.transpose()?;
+        let values = self.values.subtract(&transposed)?;
         self.derive(values, InteractionTransformation::Antisymmetrize)
     }
 
@@ -546,7 +589,7 @@ impl InteractionMatrix {
     pub fn scale(&self, scalar: f64) -> Result<Self, InteractionMatrixError> {
         require_finite_transform("scalar", scalar)?;
         self.derive(
-            self.values.scalar_mul(scalar),
+            self.values.scale(scalar),
             InteractionTransformation::Scale { scalar },
         )
     }
@@ -560,11 +603,14 @@ impl InteractionMatrix {
     pub fn clamp_min(&self, minimum: f64) -> Result<Self, InteractionMatrixError> {
         require_finite_transform("minimum", minimum)?;
         let rows = self.values.rows();
-        let columns = self.values.cols();
+        let columns = self.values.columns();
         self.derive(
-            DenseMatrix::from_fn(rows, columns, |row, column| {
-                self.values.get(row as isize, column as isize).max(minimum)
-            }),
+            Matrix::from_fn(rows, columns, Backend::Dense, |row, column| {
+                self.values
+                    .get(row, column)
+                    .expect("validated interaction coordinate")
+                    .max(minimum)
+            })?,
             InteractionTransformation::ClampMin { minimum },
         )
     }
@@ -573,11 +619,14 @@ impl InteractionMatrix {
     pub fn clamp_max(&self, maximum: f64) -> Result<Self, InteractionMatrixError> {
         require_finite_transform("maximum", maximum)?;
         let rows = self.values.rows();
-        let columns = self.values.cols();
+        let columns = self.values.columns();
         self.derive(
-            DenseMatrix::from_fn(rows, columns, |row, column| {
-                self.values.get(row as isize, column as isize).min(maximum)
-            }),
+            Matrix::from_fn(rows, columns, Backend::Dense, |row, column| {
+                self.values
+                    .get(row, column)
+                    .expect("validated interaction coordinate")
+                    .min(maximum)
+            })?,
             InteractionTransformation::ClampMax { maximum },
         )
     }
@@ -629,10 +678,10 @@ impl InteractionMatrix {
                 provenance: self.derived_provenance(transformation),
             });
         }
-        self.derive(self.values.scalar_mul(scalar), transformation)
+        self.derive(self.values.scale(scalar), transformation)
     }
     /// Returns fully resolved PiP randomness for the originating generator.
-    pub const fn generator_rng_config(&self) -> Option<RngConfig> {
+    pub const fn generator_rng_config(&self) -> Option<ResolvedRng> {
         self.provenance.generator_rng_config()
     }
 
@@ -651,7 +700,7 @@ impl InteractionMatrix {
 
     fn derive(
         &self,
-        values: DenseMatrix<f64>,
+        values: Matrix<f64>,
         transformation: InteractionTransformation,
     ) -> Result<Self, InteractionMatrixError> {
         Self::resolve(Arc::new(values), self.derived_provenance(transformation))
@@ -668,16 +717,15 @@ impl InteractionMatrix {
     }
 
     fn resolve(
-        values: Arc<DenseMatrix<f64>>,
+        values: Arc<Matrix<f64>>,
         provenance: InteractionProvenance,
     ) -> Result<Self, InteractionMatrixError> {
         let rows = values.rows();
-        let columns = values.cols();
+        let columns = values.columns();
         if rows != columns {
             return Err(InteractionMatrixError::NonSquare { rows, columns });
         }
-        for flat in 0..values.size() {
-            let value = values.get_flat(flat as isize);
+        for (flat, value) in values.values().enumerate() {
             if !value.is_finite() {
                 return Err(InteractionMatrixError::NonFiniteEntry {
                     row: flat / columns,
@@ -765,7 +813,7 @@ impl InteractionProvenance {
             _ => None,
         }
     }
-    pub const fn generator_rng_config(&self) -> Option<RngConfig> {
+    pub const fn generator_rng_config(&self) -> Option<ResolvedRng> {
         match self.generator() {
             Some(generator) => generator.rng_config(),
             None => None,
@@ -779,7 +827,7 @@ pub struct GeneratorProvenance {
     identity: String,
     version: String,
     recipe: Value,
-    rng: Option<RngConfig>,
+    rng: Option<ResolvedRng>,
 }
 
 impl GeneratorProvenance {
@@ -787,7 +835,7 @@ impl GeneratorProvenance {
         identity: impl Into<String>,
         version: impl Into<String>,
         recipe: Value,
-        rng: Option<RngConfig>,
+        rng: Option<ResolvedRng>,
     ) -> Result<Self, InteractionMatrixError> {
         let identity = identity.into();
         let version = version.into();
@@ -796,9 +844,6 @@ impl GeneratorProvenance {
         }
         if version.trim().is_empty() {
             return Err(InteractionMatrixError::InvalidGeneratorLabel { field: "version" });
-        }
-        if rng.is_some_and(|value| value.seed().is_none() || value.method().is_none()) {
-            return Err(InteractionMatrixError::UnresolvedGeneratorRng { identity });
         }
         Ok(Self {
             identity,
@@ -816,10 +861,10 @@ impl GeneratorProvenance {
     pub const fn recipe(&self) -> &Value {
         &self.recipe
     }
-    pub const fn rng(&self) -> Option<RngConfig> {
+    pub const fn rng(&self) -> Option<ResolvedRng> {
         self.rng
     }
-    pub const fn rng_config(&self) -> Option<RngConfig> {
+    pub const fn rng_config(&self) -> Option<ResolvedRng> {
         self.rng
     }
 }
@@ -1009,10 +1054,10 @@ pub enum InteractionRecipeError {
     InvalidRange { minimum: f64, maximum: f64 },
     #[error("interaction family {family} does not support sampled diagonal entries")]
     SampledDiagonalUnsupported { family: &'static str },
+    #[error("interaction matrix size overflows usize for {species} species")]
+    MatrixSizeOverflow { species: usize },
     #[error(transparent)]
-    Rng(#[from] RngConfigError),
-    #[error(transparent)]
-    TensorRand(#[from] TensorRandError),
+    Rng(#[from] RngError),
     #[error(transparent)]
     Matrix(#[from] MatrixError),
     #[error(transparent)]

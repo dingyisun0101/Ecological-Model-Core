@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use physics_in_parallel::prelude::basic::{
-    RngConfig, SquareLattice, SquareLatticeConfig, SquareLatticeConfigError,
+    ResolvedRng, RngMethod, SquareLattice, SquareLatticeGeometry, SquareLatticeGeometryError,
     SquareLatticeInitMethod,
 };
 use serde::{Deserialize, Serialize};
@@ -84,26 +84,26 @@ pub enum InitializationMethod {
 pub enum InitialStateRecipe {
     Random {
         distribution: DistributionSource,
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
     /// Assign the minimum-variance uniform taxon counts, then shuffle all sites.
     BalancedUniform {
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
     CenteredSeed {
         distribution: DistributionSource,
         seed_taxon: usize,
         seed_radius: usize,
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
     CenteredDominantSeed {
         distribution: DistributionSource,
         seed_radius: usize,
-        #[serde(default)]
-        rng: RngConfig,
+        #[serde(default = "default_indexed_rng")]
+        rng: ResolvedRng,
     },
 }
 
@@ -128,7 +128,7 @@ impl InitialStateRecipe {
 
     pub fn validate(
         &self,
-        lattice: &SquareLatticeConfig,
+        lattice: &SquareLatticeGeometry,
         num_taxa: usize,
     ) -> Result<(), InitialStateError> {
         if num_taxa == 0 {
@@ -159,7 +159,7 @@ impl InitialStateRecipe {
 
     pub fn create(
         self,
-        lattice: SquareLatticeConfig,
+        lattice: SquareLatticeGeometry,
         num_taxa: usize,
     ) -> Result<InitialState, InitialStateError> {
         self.validate(&lattice, num_taxa)?;
@@ -218,7 +218,7 @@ impl InitialStateRecipe {
         )?;
         let mut counts = count_taxa(&space, num_taxa)?;
         if let (Some(taxon), Some(radius)) = (seed_taxon, seed_radius) {
-            let shape = space.config().shape().to_vec();
+            let shape = space.geometry().shape().to_vec();
             plant_centered_seed(&mut space, &mut counts, &shape, taxon, radius);
         }
         let rng = Some(resolved_rng_from_space(&space)?);
@@ -249,7 +249,7 @@ pub enum InitialStateSource {
 impl InitialStateSource {
     pub fn validate(
         &self,
-        lattice: &SquareLatticeConfig,
+        lattice: &SquareLatticeGeometry,
         num_taxa: usize,
     ) -> Result<(), InitialStateError> {
         match self {
@@ -277,7 +277,7 @@ impl InitialStateSource {
 
     pub fn resolve(
         &self,
-        lattice: SquareLatticeConfig,
+        lattice: SquareLatticeGeometry,
         num_taxa: usize,
     ) -> Result<InitialState, InitialStateError> {
         self.validate(&lattice, num_taxa)?;
@@ -296,7 +296,7 @@ pub struct InitialState {
     num_taxa: usize,
     method: InitializationMethod,
     seed_taxon: Option<usize>,
-    rng: Option<RngConfig>,
+    rng: Option<ResolvedRng>,
     space: CategoricalSpace,
     counts: TaxonCounts,
 }
@@ -312,7 +312,7 @@ impl InitialState {
         self.seed_taxon
     }
     /// Returns the fully resolved PiP randomness used to construct the state.
-    pub const fn rng_config(&self) -> Option<RngConfig> {
+    pub const fn rng_config(&self) -> Option<ResolvedRng> {
         self.rng
     }
     pub const fn space(&self) -> &CategoricalSpace {
@@ -347,8 +347,8 @@ struct InitialStateDocumentRef<'a> {
     num_taxa: usize,
     method: InitializationMethod,
     seed_taxon: Option<usize>,
-    rng: Option<RngConfig>,
-    lattice: &'a SquareLatticeConfig,
+    rng: Option<ResolvedRng>,
+    lattice: &'a SquareLatticeGeometry,
     sites: &'a [usize],
 }
 
@@ -360,7 +360,7 @@ impl<'a> From<&'a InitialState> for InitialStateDocumentRef<'a> {
             method: initial.method,
             seed_taxon: initial.seed_taxon,
             rng: initial.rng,
-            lattice: initial.space.config(),
+            lattice: initial.space.geometry(),
             sites: initial.space.data(),
         }
     }
@@ -371,7 +371,7 @@ impl<'a> From<&'a InitialState> for InitialStateDocumentRef<'a> {
 pub struct InitialStateArtifactDescriptor {
     format: String,
     num_taxa: usize,
-    lattice: SquareLatticeConfig,
+    lattice: SquareLatticeGeometry,
     method: InitializationMethod,
     #[serde(skip_serializing_if = "Option::is_none")]
     seed_taxon: Option<usize>,
@@ -459,7 +459,7 @@ impl InitialStateArtifactDescriptor {
     pub const fn num_taxa(&self) -> usize {
         self.num_taxa
     }
-    pub const fn lattice(&self) -> &SquareLatticeConfig {
+    pub const fn lattice(&self) -> &SquareLatticeGeometry {
         &self.lattice
     }
     pub const fn method(&self) -> InitializationMethod {
@@ -510,7 +510,7 @@ pub fn persist_initial_state(
         descriptor: InitialStateArtifactDescriptor {
             format: INITIAL_STATE_FORMAT.to_owned(),
             num_taxa: initial.num_taxa,
-            lattice: initial.space.config().clone(),
+            lattice: initial.space.geometry().clone(),
             method: initial.method,
             seed_taxon: initial.seed_taxon,
             artifact: persisted.descriptor().clone(),
@@ -548,15 +548,15 @@ struct InitialStateDocument {
     num_taxa: usize,
     method: InitializationMethod,
     seed_taxon: Option<usize>,
-    rng: Option<RngConfig>,
-    lattice: SquareLatticeConfig,
+    rng: Option<ResolvedRng>,
+    lattice: SquareLatticeGeometry,
     sites: Vec<usize>,
 }
 
 impl InitialStateDocument {
     fn resolve(
         self,
-        expected_lattice: SquareLatticeConfig,
+        expected_lattice: SquareLatticeGeometry,
         expected_num_taxa: usize,
     ) -> Result<InitialState, InitialStateError> {
         if self.format != INITIAL_STATE_FORMAT {
@@ -595,14 +595,14 @@ impl InitialStateDocument {
     }
 }
 
-fn resolved_rng_from_space(space: &CategoricalSpace) -> Result<RngConfig, InitialStateError> {
-    let config = space
-        .initialization_rng_config()
-        .ok_or(InitialStateError::MissingResolvedRngConfig)?;
-    if config.method().is_none() || config.seed().is_none() {
-        return Err(InitialStateError::MissingResolvedRngConfig);
-    }
-    Ok(config)
+fn resolved_rng_from_space(space: &CategoricalSpace) -> Result<ResolvedRng, InitialStateError> {
+    space
+        .initialization_resolved_rng()
+        .ok_or(InitialStateError::MissingResolvedRngConfig)
+}
+
+fn default_indexed_rng() -> ResolvedRng {
+    ResolvedRng::from_entropy(RngMethod::IndexedSplitMix64)
 }
 
 fn validate_distribution(weights: &[f64], num_taxa: usize) -> Result<(), InitialStateError> {
@@ -678,7 +678,7 @@ fn balanced_uniform_values(num_sites: usize, num_taxa: usize) -> Vec<usize> {
 }
 
 fn validate_seed(
-    lattice: &SquareLatticeConfig,
+    lattice: &SquareLatticeGeometry,
     num_taxa: usize,
     seed_taxon: usize,
     seed_radius: usize,
@@ -693,7 +693,7 @@ fn validate_seed(
 }
 
 fn validate_seed_geometry(
-    lattice: &SquareLatticeConfig,
+    lattice: &SquareLatticeGeometry,
     seed_radius: usize,
 ) -> Result<(), InitialStateError> {
     let width = seed_radius
@@ -800,7 +800,7 @@ pub enum InitialStateError {
     #[error(transparent)]
     Serialize(#[from] serde_json::Error),
     #[error(transparent)]
-    Lattice(#[from] SquareLatticeConfigError),
+    Lattice(#[from] SquareLatticeGeometryError),
     #[error("initialized lattice has no resolved RNG configuration")]
     MissingResolvedRngConfig,
     #[error(transparent)]

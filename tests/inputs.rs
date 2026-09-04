@@ -5,7 +5,7 @@ use ecological_state_toolkit::inputs::{EcologicalInputs, EcologicalInputsError};
 use ecological_state_toolkit::interaction::{
     InteractionArtifactReference, InteractionMatrix, persist_interaction_matrix,
 };
-use physics_in_parallel::prelude::basic::{RngConfig, SquareLatticeConfig};
+use physics_in_parallel::prelude::basic::{ResolvedRng, RngMethod, SquareLatticeGeometry};
 
 fn prepared_inputs(
     root: &std::path::Path,
@@ -17,9 +17,12 @@ fn prepared_inputs(
             .unwrap();
     let interaction = persist_interaction_matrix(root, &matrix).unwrap();
     let initial = InitialStateRecipe::BalancedUniform {
-        rng: RngConfig::new(Some(81), None),
+        rng: ResolvedRng::new(81, RngMethod::IndexedSplitMix64),
     }
-    .create(SquareLatticeConfig::periodic(&[12]), initial_taxa)
+    .create(
+        SquareLatticeGeometry::periodic(&[12]).unwrap(),
+        initial_taxa,
+    )
     .unwrap();
     let initial = persist_initial_state(root, &initial).unwrap();
     (

@@ -4,10 +4,10 @@ use ecological_state_toolkit::interaction::{
     InteractionProvenance, InteractionSourceKind, InteractionTransformation, MatrixNormalization,
     SignStructure,
 };
-use physics_in_parallel::prelude::basic::{DenseMatrix, RngConfig};
+use physics_in_parallel::prelude::basic::{Backend, Matrix, ResolvedRng, RngMethod};
 
-fn seeded(seed: u64) -> RngConfig {
-    RngConfig::new(Some(seed), None)
+fn seeded(seed: u64) -> ResolvedRng {
+    ResolvedRng::new(seed, RngMethod::IndexedSplitMix64)
 }
 
 #[test]
@@ -118,13 +118,16 @@ fn transformations_compose_pip_matrix_operations_without_mutating_source() {
 
 #[test]
 fn matrix_constructors_infer_species_and_reject_non_square_inputs() {
-    let matrix =
-        InteractionMatrix::from_matrix(DenseMatrix::from_vec(2, 2, vec![1.0, 2.0, 3.0, 4.0]))
-            .unwrap();
+    let matrix = InteractionMatrix::from_matrix(
+        Matrix::from_values(2, 2, Backend::Dense, vec![1.0, 2.0, 3.0, 4.0]).unwrap(),
+    )
+    .unwrap();
     assert_eq!(matrix.species(), 2);
 
-    let error =
-        InteractionMatrix::from_matrix(DenseMatrix::from_vec(2, 3, vec![0.0; 6])).unwrap_err();
+    let error = InteractionMatrix::from_matrix(
+        Matrix::from_values(2, 3, Backend::Dense, vec![0.0; 6]).unwrap(),
+    )
+    .unwrap_err();
     assert!(matches!(
         error,
         ecological_state_toolkit::interaction::InteractionMatrixError::NonSquare {
@@ -273,8 +276,11 @@ fn derived_provenance_survives_verified_artifact_round_trip() {
     }
     assert_eq!(loaded.provenance(), matrix.provenance());
     assert_eq!(loaded.generator_rng_config(), matrix.generator_rng_config());
-    assert_eq!(loaded.generator_rng_config().unwrap().seed(), Some(104));
-    assert!(loaded.generator_rng_config().unwrap().method().is_some());
+    assert_eq!(loaded.generator_rng_config().unwrap().seed(), 104);
+    assert_eq!(
+        loaded.generator_rng_config().unwrap().method(),
+        RngMethod::IndexedSplitMix64
+    );
 
     let reused =
         ecological_state_toolkit::interaction::persist_interaction_matrix(&artifact_root, &matrix)
