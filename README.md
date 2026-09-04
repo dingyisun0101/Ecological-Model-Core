@@ -187,6 +187,32 @@ let antisymmetric = lattice.antisymmetrize()?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+One source matrix can produce an ordered series of leading-component SVD
+reconstructions without recomputing the decomposition. The Toolkit returns
+typed matrices and diagnostics; callers publish whichever members they need
+through the same verified JSON artifact path:
+
+```rust,no_run
+use std::path::Path;
+use ecological_state_toolkit::interaction::persist_truncated_svd_series;
+# use ecological_state_toolkit::interaction::InteractionMatrix;
+# fn example(lattice: &InteractionMatrix) -> Result<(), Box<dyn std::error::Error>> {
+let series = persist_truncated_svd_series(
+    Path::new("prepared-inputs"),
+    lattice,
+    &[16, 32, 64],
+)?;
+for member in series.approximations() {
+    assert_eq!(member.persisted().descriptor().species(), lattice.species());
+}
+# Ok(())
+# }
+```
+
+The returned singular values are descending, reconstructions retain authored
+rank order, and every artifact provenance records its retained rank, spectral
+energy fraction, and measured relative Frobenius error.
+
 `abs` applies elementwise absolute value. `clamp_min` and `clamp_max` provide
 independent finite lower and upper bounds. `ensure_max_abs_at_most` validates
 a bound without changing the matrix, which is useful when exceeding the

@@ -1,6 +1,6 @@
 [package]
 name = "ecological-state-toolkit"
-version = "0.13.0"
+version = "0.13.1"
 edition = "2024"
 rust-version = "1.97"
 description = "End-to-end ecological state construction, schemas, observation, and analysis conversion"
@@ -14,6 +14,7 @@ categories = ["science", "simulation"]
 include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "python/**/*.py", "python/pyproject.toml", "python/README.md", "README.md", "LICENSE"]
 
 [dependencies]
+nalgebra = "0.34.1"
 physics_in_parallel = "4.0.0-alpha.2"
 scientific-workflow = "0.13.4"
 serde = { version = "1", features = ["derive"] }

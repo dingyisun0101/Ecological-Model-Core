@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use nalgebra::DMatrix;
 use physics_in_parallel::prelude::basic::{
     Backend, IndexedRng, Matrix, MatrixError, ResolvedRng, RngError, RngMethod,
 };
@@ -478,6 +479,97 @@ pub struct InteractionMatrix {
     provenance: InteractionProvenance,
 }
 
+/// One low-rank interaction reconstructed from leading singular components.
+#[derive(Clone, Debug)]
+pub struct TruncatedSvdApproximation {
+    retained_rank: usize,
+    retained_spectral_energy: f64,
+    relative_reconstruction_error: f64,
+    matrix: InteractionMatrix,
+}
+
+impl TruncatedSvdApproximation {
+    pub const fn retained_rank(&self) -> usize {
+        self.retained_rank
+    }
+
+    pub const fn retained_spectral_energy(&self) -> f64 {
+        self.retained_spectral_energy
+    }
+
+    pub const fn relative_reconstruction_error(&self) -> f64 {
+        self.relative_reconstruction_error
+    }
+
+    pub const fn matrix(&self) -> &InteractionMatrix {
+        &self.matrix
+    }
+
+    pub fn into_matrix(self) -> InteractionMatrix {
+        self.matrix
+    }
+}
+
+/// Ordered singular spectrum and authored low-rank reconstructions of one matrix.
+#[derive(Clone, Debug)]
+pub struct TruncatedSvdSeries {
+    singular_values: Vec<f64>,
+    approximations: Vec<TruncatedSvdApproximation>,
+}
+
+/// One typed SVD approximation paired with its verified JSON artifact descriptor.
+#[derive(Clone, Debug)]
+pub struct PersistedTruncatedSvdApproximation {
+    approximation: TruncatedSvdApproximation,
+    persisted: PersistedInteraction,
+}
+
+impl PersistedTruncatedSvdApproximation {
+    pub const fn approximation(&self) -> &TruncatedSvdApproximation {
+        &self.approximation
+    }
+
+    pub const fn persisted(&self) -> &PersistedInteraction {
+        &self.persisted
+    }
+}
+
+/// Singular spectrum and content-addressed JSON artifacts produced by one SVD.
+#[derive(Clone, Debug)]
+pub struct PersistedTruncatedSvdSeries {
+    singular_values: Vec<f64>,
+    approximations: Vec<PersistedTruncatedSvdApproximation>,
+}
+
+impl PersistedTruncatedSvdSeries {
+    pub fn singular_values(&self) -> &[f64] {
+        &self.singular_values
+    }
+
+    pub fn approximations(&self) -> &[PersistedTruncatedSvdApproximation] {
+        &self.approximations
+    }
+}
+
+impl TruncatedSvdSeries {
+    /// Returns singular values in descending order.
+    pub fn singular_values(&self) -> &[f64] {
+        &self.singular_values
+    }
+
+    /// Returns approximations in the caller's authored rank order.
+    pub fn approximations(&self) -> &[TruncatedSvdApproximation] {
+        &self.approximations
+    }
+
+    /// Returns the approximation matching one retained rank.
+    pub fn approximation(&self, retained_rank: usize) -> Option<&TruncatedSvdApproximation> {
+        self.approximations
+            .iter()
+            .find(|approximation| approximation.retained_rank == retained_rank)
+    }
+}
+
 impl InteractionMatrix {
     pub fn from_matrix(values: Matrix<f64>) -> Result<Self, InteractionMatrixError> {
         Self::resolve(
@@ -597,6 +689,111 @@ impl InteractionMatrix {
     /// Return the elementwise absolute value of this matrix.
     pub fn abs(&self) -> Result<Self, InteractionMatrixError> {
         self.derive(self.values.abs(), InteractionTransformation::Abs)
+    }
+
+    /// Computes one SVD and reconstructs each requested leading-component rank.
+    ///
+    /// Singular values are ordered from largest to smallest. Reconstructions
+    /// retain the caller's rank ordering, while every matrix records its rank,
+    /// retained spectral energy, and measured relative Frobenius error in the
+    /// normal interaction-transformation provenance chain.
+    pub fn truncated_svd_series(
+        &self,
+        retained_ranks: &[usize],
+    ) -> Result<TruncatedSvdSeries, InteractionMatrixError> {
+        if retained_ranks.is_empty() {
+            return Err(InteractionMatrixError::EmptyRetainedRanks);
+        }
+        let species = self.species();
+        for (index, &rank) in retained_ranks.iter().enumerate() {
+            if rank == 0 || rank > species {
+                return Err(InteractionMatrixError::InvalidRetainedRank { rank, species });
+            }
+            if retained_ranks[..index].contains(&rank) {
+                return Err(InteractionMatrixError::DuplicateRetainedRank { rank });
+            }
+        }
+
+        let source = self.values.values().collect::<Vec<_>>();
+        let svd = DMatrix::from_row_slice(species, species, &source).svd(true, true);
+        let u = svd.u.expect("SVD requested left singular vectors");
+        let v_t = svd.v_t.expect("SVD requested right singular vectors");
+        let singular_values = svd.singular_values.as_slice().to_vec();
+        let requested = retained_ranks
+            .iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+        let maximum = *requested.last().expect("validated ranks are nonempty");
+        let mut reconstructed = vec![0.0; species * species];
+        let mut matrices = std::collections::BTreeMap::new();
+        for component in 0..maximum {
+            let singular_value = singular_values[component];
+            for row in 0..species {
+                let left = u[(row, component)] * singular_value;
+                for column in 0..species {
+                    reconstructed[row * species + column] += left * v_t[(component, column)];
+                }
+            }
+            let rank = component + 1;
+            if requested.contains(&rank) {
+                matrices.insert(rank, reconstructed.clone());
+            }
+        }
+
+        let total_energy = singular_values
+            .iter()
+            .map(|value| value * value)
+            .sum::<f64>();
+        let source_norm = source.iter().map(|value| value * value).sum::<f64>().sqrt();
+        let approximations = retained_ranks
+            .iter()
+            .copied()
+            .map(|retained_rank| {
+                let values = matrices
+                    .remove(&retained_rank)
+                    .expect("every validated requested rank was reconstructed");
+                let retained_energy = singular_values[..retained_rank]
+                    .iter()
+                    .map(|value| value * value)
+                    .sum::<f64>();
+                let retained_spectral_energy = if total_energy == 0.0 {
+                    1.0
+                } else {
+                    retained_energy / total_energy
+                };
+                let error = source
+                    .iter()
+                    .zip(&values)
+                    .map(|(source, approximation)| (source - approximation).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                let relative_reconstruction_error = if source_norm == 0.0 {
+                    0.0
+                } else {
+                    error / source_norm
+                };
+                let matrix = Matrix::from_values(species, species, Backend::Dense, values)?;
+                let matrix = self.derive(
+                    matrix,
+                    InteractionTransformation::TruncatedSvd {
+                        retained_rank,
+                        retained_spectral_energy,
+                        relative_reconstruction_error,
+                    },
+                )?;
+                Ok(TruncatedSvdApproximation {
+                    retained_rank,
+                    retained_spectral_energy,
+                    relative_reconstruction_error,
+                    matrix,
+                })
+            })
+            .collect::<Result<Vec<_>, InteractionMatrixError>>()?;
+
+        Ok(TruncatedSvdSeries {
+            singular_values,
+            approximations,
+        })
     }
 
     /// Raise every entry below `minimum` to that finite lower bound.
@@ -774,6 +971,11 @@ pub enum InteractionTransformation {
         threshold: f64,
         maximum: f64,
         scalar: f64,
+    },
+    TruncatedSvd {
+        retained_rank: usize,
+        retained_spectral_energy: f64,
+        relative_reconstruction_error: f64,
     },
 }
 
@@ -1019,6 +1221,32 @@ pub fn persist_interaction_matrix(
     })
 }
 
+/// Computes one truncated-SVD series and publishes every reconstruction as JSON.
+pub fn persist_truncated_svd_series(
+    artifact_root: &Path,
+    source: &InteractionMatrix,
+    retained_ranks: &[usize],
+) -> Result<PersistedTruncatedSvdSeries, InteractionSvdArtifactError> {
+    let TruncatedSvdSeries {
+        singular_values,
+        approximations,
+    } = source.truncated_svd_series(retained_ranks)?;
+    let approximations = approximations
+        .into_iter()
+        .map(|approximation| {
+            let persisted = persist_interaction_matrix(artifact_root, approximation.matrix())?;
+            Ok(PersistedTruncatedSvdApproximation {
+                approximation,
+                persisted,
+            })
+        })
+        .collect::<Result<Vec<_>, InteractionArtifactError>>()?;
+    Ok(PersistedTruncatedSvdSeries {
+        singular_values,
+        approximations,
+    })
+}
+
 pub fn load_verified_interaction_matrix(
     artifact_root: &Path,
     descriptor: &InteractionArtifactDescriptor,
@@ -1091,6 +1319,12 @@ pub enum InteractionMatrixError {
     },
     #[error("interaction matrix transformation parameter {name} is invalid: {value}")]
     InvalidTransformationParameter { name: &'static str, value: f64 },
+    #[error("retained_ranks must contain at least one rank")]
+    EmptyRetainedRanks,
+    #[error("retained SVD rank {rank} must be in 1..={species}")]
+    InvalidRetainedRank { rank: usize, species: usize },
+    #[error("retained_ranks repeats rank {rank}")]
+    DuplicateRetainedRank { rank: usize },
     #[error("interaction matrix maximum absolute entry {maximum} exceeds threshold {threshold}")]
     MaximumAbsoluteEntryExceeded { threshold: f64, maximum: f64 },
     #[error("interaction matrix label must not be empty")]
@@ -1120,6 +1354,16 @@ pub enum InteractionArtifactError {
     Serialize(#[from] serde_json::Error),
     #[error(transparent)]
     Artifact(#[from] ArtifactError),
+}
+
+/// Invalid SVD request or failed publication of one reconstructed matrix.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum InteractionSvdArtifactError {
+    #[error(transparent)]
+    Matrix(#[from] InteractionMatrixError),
+    #[error(transparent)]
+    Artifact(#[from] InteractionArtifactError),
 }
 
 #[derive(Debug, Error)]

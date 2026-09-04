@@ -2,7 +2,7 @@ use ecological_state_toolkit::artifact::ArtifactDisposition;
 use ecological_state_toolkit::interaction::{
     DiagonalPolicy, InteractionArtifactReference, InteractionMatrix, InteractionMatrixRecipe,
     InteractionProvenance, InteractionSourceKind, InteractionTransformation, MatrixNormalization,
-    SignStructure,
+    SignStructure, load_verified_interaction_matrix, persist_truncated_svd_series,
 };
 use physics_in_parallel::prelude::basic::{Backend, Matrix, ResolvedRng, RngMethod};
 
@@ -114,6 +114,94 @@ fn transformations_compose_pip_matrix_operations_without_mutating_source() {
         already_bounded.provenance().kind(),
         InteractionSourceKind::Derived
     );
+}
+
+#[test]
+fn truncated_svd_series_reuses_one_ordered_spectrum_and_preserves_authored_rank_order() {
+    let source = InteractionMatrix::from_rows(vec![
+        vec![3.0, 0.0, 0.0],
+        vec![0.0, 2.0, 0.0],
+        vec![0.0, 0.0, 1.0],
+    ])
+    .unwrap();
+    let series = source.truncated_svd_series(&[2, 1, 3]).unwrap();
+
+    assert_eq!(series.singular_values(), &[3.0, 2.0, 1.0]);
+    assert_eq!(
+        series
+            .approximations()
+            .iter()
+            .map(|approximation| approximation.retained_rank())
+            .collect::<Vec<_>>(),
+        [2, 1, 3]
+    );
+    let rank_two = series.approximation(2).unwrap();
+    assert_eq!(rank_two.matrix().coefficient(0, 0), 3.0);
+    assert_eq!(rank_two.matrix().coefficient(1, 1), 2.0);
+    assert_eq!(rank_two.matrix().coefficient(2, 2), 0.0);
+    assert!((rank_two.retained_spectral_energy() - 13.0 / 14.0).abs() < 1.0e-12);
+    assert!((rank_two.relative_reconstruction_error() - (1.0_f64 / 14.0).sqrt()).abs() < 1.0e-12);
+    assert!(matches!(
+        rank_two.matrix().provenance(),
+        InteractionProvenance::Derived {
+            transformation: InteractionTransformation::TruncatedSvd {
+                retained_rank: 2,
+                ..
+            },
+            ..
+        }
+    ));
+    let full = series.approximation(3).unwrap();
+    assert!(full.relative_reconstruction_error() < 1.0e-12);
+}
+
+#[test]
+fn truncated_svd_series_rejects_empty_invalid_and_duplicate_ranks() {
+    let source = InteractionMatrix::from_rows(vec![vec![1.0, 0.0], vec![0.0, 1.0]]).unwrap();
+    assert!(matches!(
+        source.truncated_svd_series(&[]),
+        Err(ecological_state_toolkit::interaction::InteractionMatrixError::EmptyRetainedRanks)
+    ));
+    assert!(matches!(
+        source.truncated_svd_series(&[0]),
+        Err(
+            ecological_state_toolkit::interaction::InteractionMatrixError::InvalidRetainedRank {
+                rank: 0,
+                species: 2
+            }
+        )
+    ));
+    assert!(matches!(
+        source.truncated_svd_series(&[1, 1]),
+        Err(
+            ecological_state_toolkit::interaction::InteractionMatrixError::DuplicateRetainedRank {
+                rank: 1
+            }
+        )
+    ));
+}
+
+#[test]
+fn truncated_svd_series_publishes_each_reconstruction_as_verified_json() {
+    let root = tempfile::tempdir().unwrap();
+    let source = InteractionMatrix::from_rows(vec![
+        vec![3.0, 0.0, 0.0],
+        vec![0.0, 2.0, 0.0],
+        vec![0.0, 0.0, 1.0],
+    ])
+    .unwrap();
+    let series = persist_truncated_svd_series(root.path(), &source, &[1, 2]).unwrap();
+
+    assert_eq!(series.approximations().len(), 2);
+    for member in series.approximations() {
+        assert_eq!(
+            member.persisted().descriptor().path().extension().unwrap(),
+            "json"
+        );
+        let restored =
+            load_verified_interaction_matrix(root.path(), member.persisted().descriptor()).unwrap();
+        assert_eq!(restored.values(), member.approximation().matrix().values());
+    }
 }
 
 #[test]
