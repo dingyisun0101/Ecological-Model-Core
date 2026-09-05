@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "ecological-state-toolkit"
-version = "0.13.1"
+version = "0.13.2"
 dependencies = [
  "nalgebra",
  "physics_in_parallel",
@@ -846,9 +846,9 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "physics_in_parallel"
-version = "4.0.0-alpha.2"
+version = "4.1.0-alpha"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a7f36e5d891743e2fc02f09e6595812533a350c735e0bc2cc8f9294565e66c8"
+checksum = "07b4beb8e943e5777bb0bd4a31f0108fa667e602b59576dd02ca57ecdfc9f41b"
 dependencies = [
  "ahash",
  "erased-serde",
@@ -1106,14 +1106,15 @@ dependencies = [
 
 [[package]]
 name = "scientific-workflow"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59bbfa81df72a3d75e7f1d839fb76f819ba0995cfca168b3d6c01cf4a85cfac9"
+checksum = "81ffd5cb7f9140627f448b2ffa68ae42e39e8152db36c356171fc63c12e7dee3"
 dependencies = [
  "crossterm",
  "erased-serde",
  "fs2",
  "inventory",
+ "libc",
  "ratatui",
  "rayon",
  "scientific-workflow-macros",
@@ -1122,6 +1123,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "time",
+ "unicode-width",
 ]
 
 [[package]]

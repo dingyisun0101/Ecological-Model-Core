@@ -1,5 +1,10 @@
 # Ecological State Toolkit
 
+> **0.13.2 dependency migration:** this patch adopts Scientific Workflow 0.13.5
+> and PiP 4.1.0-alpha. Downstream crates exchanging PiP types with this crate
+> must also use PiP 4.1.0-alpha. Earlier PiP releases have been yanked; the
+> schema-v2 tensor wire format is retained.
+
 > **Breaking 0.12 update:** `ecological-model-core` is superseded by the
 > `ecological-state-toolkit` crate and `ecological_state_toolkit` Rust
 > import. There are no compatibility aliases. The ecological schema provider
@@ -68,9 +73,9 @@ not construct a GLV- or Simulator-specific state around it.
 
 ```toml
 [dependencies]
-ecological-state-toolkit = "0.13.0"
-scientific-workflow = "0.13.4"
-physics_in_parallel = "4.0.0-alpha.2"
+ecological-state-toolkit = "0.13.2"
+scientific-workflow = "0.13.5"
+physics_in_parallel = "=4.1.0-alpha"
 ```
 
 Use this crate when multiple ecological models need the same validated
@@ -78,7 +83,7 @@ initial-state, interaction, trajectory, or terminal-product semantics. A model
 that needs only one small local calculation may be clearer without the extra
 dependency.
 
-When used with Scientific Workflow 0.13.4, put recipes and other resolved
+When used with Scientific Workflow 0.13.5, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
 still directly owns its Workflow `SystemState`; Ecological State Toolkit owns
 only the standard layout supplied to that state, not the model, observation

@@ -1,8 +1,9 @@
-# Eco Core compatibility with Workflow 0.13.5
+# Eco Core migration to Workflow 0.13.5 and PiP 4.1.0-alpha
 
-Reviewed on 2026-09-05: local `main`, commit
-`6ca9e6afb3b76d8dbbd7cd343b9f5781daacc554`. Application source was read only and
-validation ran in an isolated copy.
+Initial audit on 2026-09-05: local `main`, commit
+`6ca9e6afb3b76d8dbbd7cd343b9f5781daacc554`, reviewed without source edits and
+validated in an isolated copy. The subsequent 0.13.2 migration and validation
+are recorded below.
 
 ## Coordinated release requirements
 
@@ -36,12 +37,20 @@ format 8. Both new readers accept 7 and 8. **NPY remains v2** and project schema
 remains 1. Read the [upstream migration guide](https://github.com/dingyisun0101/Scientific-Workflow/blob/v0.13.5/docs/migration-0.13.5.md)
 and [API references](https://github.com/dingyisun0101/Scientific-Workflow/blob/v0.13.5/README.md#subsystem-contracts).
 
-## Impact and recommended update
+## Implemented dependency updates
 
-`ecological-state-toolkit` depends on Workflow 0.13.4 to provide ecological state
-schema integration. Update that declaration and the lockfile to 0.13.5 when
-coordinating the downstream release. The current semver range allows 0.13.5,
-but an existing lockfile can retain 0.13.4; verify the actual resolved version.
+`ecological-state-toolkit` 0.13.2 updates its Workflow dependency declaration and
+lockfile from 0.13.4 to 0.13.5 to provide ecological state schema integration.
+Downstream application lockfiles must also be refreshed; verify the actual
+resolved version rather than relying only on the manifest's semver range.
+
+The release also pins `physics_in_parallel = "=4.1.0-alpha"`, following the
+upstream PiP release and yanking of earlier versions. Existing lockfiles can
+still use the yanked 4.0.0-alpha.2, but fresh resolution cannot. Downstream
+applications exchanging PiP types with Eco Core must migrate to the same PiP
+version. PiP retains the schema-v2 tensor wire format; its stricter validation
+and numerical changes are described in the
+[PiP migration notes](https://github.com/dingyisun0101/Physics-in-Parallel/blob/v4.1.0-alpha/docs/RELEASES.md).
 
 State schemas, static providers, payload ownership, and ordinary observation
 interfaces are unchanged. Eco Core has no current raw dependency-context parser
@@ -55,9 +64,19 @@ there is no reason to thread those mechanisms through schema providers.
 
 ## Validation evidence and limits
 
-An isolated copy with the qualified Workflow 0.13.5 source override passed
-**all 32 Rust tests**, without changing Eco Core source. Repeat
-`cargo test --workspace --all-targets` with the published version selected in the
-lockfile. GLV and Simulator's own lockfiles may select a different Eco Core patch;
-check the coordinated application graph separately. This task adds only this
-migration/compatibility guide and does not publish a new Eco Core version.
+The initial isolated audit with the qualified Workflow 0.13.5 source override
+passed **all 32 Rust tests**, without changing Eco Core source.
+
+The 0.13.2 migration on 2026-09-05 also passed **all 32 Rust tests** with
+`cargo test --locked --workspace --all-targets` against the published crates.io
+Workflow 0.13.5 and PiP 4.1.0-alpha packages, without source overrides. Dependency
+tree checks confirm one version of each. `cargo test --locked --doc` passed
+four documentation tests, with one illustrative example ignored. Formatting
+validation passed with `cargo fmt --all -- --check`.
+
+`cargo publish --dry-run --locked --allow-dirty` verified the release package.
+`cargo publish --locked --allow-dirty` then published `ecological-state-toolkit`
+0.13.2 to crates.io and confirmed registry availability on 2026-09-05.
+
+GLV and Simulator's own lockfiles may select a different Eco Core patch; check
+the coordinated application graph separately when migrating those applications.
