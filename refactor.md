@@ -1,5 +1,13 @@
 # Eco Core migration to Workflow 0.13.5 and PiP 4.1.0-alpha
 
+## Current dependency update: 0.13.3
+
+Version 0.13.3 consumes published Workflow 0.13.7. Public APIs, ecological
+state schemas, and PiP 4.1.0-alpha are unchanged. All 32 Rust tests, formatting,
+Clippy with warnings denied, and registry package verification passed.
+
+The earlier migration and validation history follows.
+
 Initial audit on 2026-09-05: local `main`, commit
 `6ca9e6afb3b76d8dbbd7cd343b9f5781daacc554`, reviewed without source edits and
 validated in an isolated copy. The subsequent 0.13.2 migration and validation
