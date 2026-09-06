@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "ecological-state-toolkit"
-version = "0.13.3"
+version = "0.13.4"
 dependencies = [
  "nalgebra",
  "physics_in_parallel",
@@ -1106,9 +1106,9 @@ dependencies = [
 
 [[package]]
 name = "scientific-workflow"
-version = "0.13.7"
+version = "0.13.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3f011016ad6b1617b5b86bba5ee4172e2c1bb02a3fcc57bde72d8b1aead391a"
+checksum = "17b394e88be050ba5f756b818552c3214100fd9c672c4d41b57adf1c079c2dbd"
 dependencies = [
  "crossterm",
  "erased-serde",
