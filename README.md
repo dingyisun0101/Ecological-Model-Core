@@ -1,6 +1,6 @@
 # Ecological State Toolkit
 
-> **0.13.10 dependency update:** this patch adopts Scientific Workflow 0.14.2
+> **Breaking 0.14.0 dependency update:** this release adopts Scientific Workflow 0.15.0
 > and PiP 4.1.0-alpha. Downstream crates exchanging PiP types with this crate
 > must also use PiP 4.1.0-alpha. Earlier PiP releases have been yanked; the
 > schema-v2 tensor wire format is retained.
@@ -9,6 +9,13 @@
 > `ecological-state-toolkit` crate and `ecological_state_toolkit` Rust
 > import. There are no compatibility aliases. The ecological schema provider
 > identity is now `ecological-state-toolkit.ecological-state.v1`.
+
+Downstream crates exchanging Workflow types must also use Workflow 0.15.0;
+0.14.x types are not interchangeable. Scientific schemas and algorithms are
+unchanged. Workflow execution requires a dashboard: run inside `screen` or
+`tmux`. Disk pauses require freeing space, then typing `resume`; NPY defaults to
+gradual automatic worker admission. Reading and constructing ecological state
+without executing a Workflow study needs no terminal.
 
 An end-to-end, model-neutral Rust package for ecological state construction,
 validation, schema provision, and trajectory products. It deliberately
@@ -73,8 +80,8 @@ not construct a GLV- or Simulator-specific state around it.
 
 ```toml
 [dependencies]
-ecological-state-toolkit = "0.13.10"
-scientific-workflow = "0.14.2"
+ecological-state-toolkit = "0.14.0"
+scientific-workflow = "0.15.0"
 physics_in_parallel = "=4.1.0-alpha"
 ```
 
@@ -83,7 +90,7 @@ initial-state, interaction, trajectory, or terminal-product semantics. A model
 that needs only one small local calculation may be clearer without the extra
 dependency.
 
-When used with Scientific Workflow 0.14.2, put recipes and other resolved
+When used with Scientific Workflow 0.15.0, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
 still directly owns its Workflow `SystemState`; Ecological State Toolkit owns
 only the standard layout supplied to that state, not the model, observation
