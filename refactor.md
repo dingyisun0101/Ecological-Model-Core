@@ -1,6 +1,14 @@
 # Eco Core migration to Workflow 0.13.5 and PiP 4.1.0-alpha
 
-## Current dependency update: 0.13.3
+## Current dependency update: 0.14.0
+
+Version 0.14.0 consumes published Workflow 0.15.0. Its public Workflow types
+require downstream migration to the same version; ecological schemas and PiP
+4.1.0-alpha are unchanged. Rust tests, Clippy/rustdoc with warnings denied,
+doctests, and registry package verification passed. Commit and tag were pushed
+before publication. Downstream GLV and Simulator now consume this online release.
+
+## Previous dependency update: 0.13.3
 
 Version 0.13.3 consumes published Workflow 0.13.7. Public APIs, ecological
 state schemas, and PiP 4.1.0-alpha are unchanged. All 32 Rust tests, formatting,
