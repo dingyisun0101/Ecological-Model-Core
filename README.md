@@ -1,16 +1,19 @@
 # Ecological State Toolkit
 
-> **Breaking 0.14.0 dependency update:** this release adopts Scientific Workflow 0.15.0
-> and PiP 4.1.0-alpha. Downstream crates exchanging PiP types with this crate
-> must also use PiP 4.1.0-alpha. Earlier PiP releases have been yanked; the
-> schema-v2 tensor wire format is retained.
+> **Dependency patch 0.14.1:** consumes published PiP 4.1.1-alpha and Workflow
+> 0.15.4. Numerical algorithms and scientific behavior are unchanged. Projects
+> exchanging PiP values must use `physics_in_parallel = "=4.1.1-alpha"`.
+
+
+> **0.14 generation:** adopts Workflow 0.15 and PiP 4.1 alpha.
+> The schema-v2 tensor wire format is retained. Use the current pins above.
 
 > **Breaking 0.12 update:** `ecological-model-core` is superseded by the
 > `ecological-state-toolkit` crate and `ecological_state_toolkit` Rust
 > import. There are no compatibility aliases. The ecological schema provider
 > identity is now `ecological-state-toolkit.ecological-state.v1`.
 
-Downstream crates exchanging Workflow types must also use Workflow 0.15.0;
+Downstream crates exchanging Workflow types must also use Workflow 0.15;
 0.14.x types are not interchangeable. Scientific schemas and algorithms are
 unchanged. Workflow execution requires a dashboard: run inside `screen` or
 `tmux`. Disk pauses require freeing space, then typing `resume`; NPY defaults to
@@ -81,8 +84,8 @@ not construct a GLV- or Simulator-specific state around it.
 ```toml
 [dependencies]
 ecological-state-toolkit = "0.14.0"
-scientific-workflow = "0.15.0"
-physics_in_parallel = "=4.1.0-alpha"
+scientific-workflow = "0.15.4"
+physics_in_parallel = "=4.1.1-alpha"
 ```
 
 Use this crate when multiple ecological models need the same validated
