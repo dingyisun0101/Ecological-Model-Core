@@ -1,7 +1,7 @@
 # Ecological State Toolkit
 
-> **Dependency patch 0.14.1:** consumes published PiP 4.1.1-alpha and Workflow
-> 0.15.4. Numerical algorithms and scientific behavior are unchanged. Projects
+> **Dependency patch 0.14.2:** consumes published PiP 4.1.1-alpha and Workflow
+> 0.15.5. Numerical algorithms and scientific behavior are unchanged. Projects
 > exchanging PiP values must use `physics_in_parallel = "=4.1.1-alpha"`.
 
 
@@ -84,7 +84,7 @@ not construct a GLV- or Simulator-specific state around it.
 ```toml
 [dependencies]
 ecological-state-toolkit = "0.14.0"
-scientific-workflow = "0.15.4"
+scientific-workflow = "0.15.5"
 physics_in_parallel = "=4.1.1-alpha"
 ```
 
