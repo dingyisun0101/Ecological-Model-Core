@@ -11,10 +11,12 @@ The repository owns neutral ecological inputs, products, state schemas, and
 trajectory observation. Models and studies own execution, recording policy,
 and application orchestration.
 
-The 0.15.0 toolkit generation consumes published Workflow 0.16.0 and PiP
+The 0.15.1 toolkit patch consumes published Workflow 0.16.1 and PiP
 4.1.1-alpha. Workflow descriptors must come from the same dependency generation
 as the receiving model. Ecological schemas, artifact formats, and algorithms
 retain their existing scientific meaning.
+Workflow's converter preflight accepts compatible Python 0.6.x companions;
+the current published companion is 0.6.1.
 
 The package and Rust library names are:
 

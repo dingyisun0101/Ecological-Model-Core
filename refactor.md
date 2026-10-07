@@ -1,6 +1,22 @@
 # Ecological State Toolkit dependency migrations
 
-## Current release: 0.15.0
+## Current dependency patch: 0.15.1
+
+Toolkit 0.15.1 consumes published Workflow 0.16.1, whose converter preflight
+accepts compatible Python 0.6.x releases. The current companion is published
+Python 0.6.1. The Workflow minimum and lockfile were updated after registry
+availability was confirmed. Ecological schemas, artifact formats, algorithms,
+and PiP 4.1.1-alpha remain unchanged.
+
+The published-dependency qualification passed all 32 Rust tests and four
+documentation tests (one incomplete illustrative fragment ignored), formatting,
+Clippy and rustdoc with warnings denied, and registry package verification of
+all 21 packaged files. Dependency trees resolve one Workflow 0.16.1 and exactly
+PiP 4.1.1-alpha without source overrides. The release procedure merges the
+validated branch into `main` and pushes `main` plus annotated tag `v0.15.1`
+successfully before Cargo publication.
+
+## Previous release: 0.15.0
 
 Toolkit 0.15.0 consumes published Workflow 0.16.0 and retains the exact PiP
 4.1.1-alpha pin. This supersedes the 0.14 generation's Workflow 0.15 integration:

@@ -1,6 +1,6 @@
 [package]
 name = "ecological-state-toolkit"
-version = "0.15.0"
+version = "0.15.1"
 edition = "2024"
 rust-version = "1.97"
 description = "Validated ecological inputs, state schemas, trajectory observation, and terminal products"
@@ -16,7 +16,7 @@ include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "README.md", "LI
 [dependencies]
 nalgebra = "0.34.1"
 physics_in_parallel = "=4.1.1-alpha"
-scientific-workflow = "0.16.0"
+scientific-workflow = "0.16.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"

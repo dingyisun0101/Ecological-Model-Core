@@ -1,5 +1,10 @@
 # Ecological State Toolkit
 
+> **Dependency patch 0.15.1:** consumes published Workflow 0.16.1, whose
+> converter preflight accepts compatible Python 0.6.x companions. The current
+> companion is 0.6.1. Ecological schemas, formats, algorithms, and the PiP pin
+> are unchanged.
+
 > **Breaking 0.15.0 update:** adopts published Workflow 0.16.0 and supersedes
 > the toolkit 0.14 generation's Workflow 0.15 integration. Downstream crates
 > exchanging Workflow types must migrate together; no compatibility aliases
@@ -19,7 +24,7 @@ gradual automatic worker admission. Reading and constructing ecological state
 without executing a Workflow study needs no terminal.
 
 Applications using Workflow's `$npy` phase require Python 3.14+ and the
-published `scientific-workflow[npy]==0.6.0` companion in their active environment.
+published `scientific-workflow[npy]==0.6.1` companion in their active environment.
 Cargo does not install Python. Workflow produces NPY v3 and uses v2 reuse
 receipts/program metadata with verified task snapshots; raw recordings retain
 formats 7 and 8. Downstream analysis owns historical-result interpretation.
@@ -88,8 +93,8 @@ not construct a GLV- or Simulator-specific state around it.
 
 ```toml
 [dependencies]
-ecological-state-toolkit = "0.15.0"
-scientific-workflow = "0.16.0"
+ecological-state-toolkit = "0.15.1"
+scientific-workflow = "0.16.1"
 physics_in_parallel = "=4.1.1-alpha"
 ```
 
@@ -98,7 +103,7 @@ initial-state, interaction, trajectory, or terminal-product semantics. A model
 that needs only one small local calculation may be clearer without the extra
 dependency.
 
-When used with Scientific Workflow 0.16.0, put recipes and other resolved
+When used with Scientific Workflow 0.16.1, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
 still directly owns its Workflow `SystemState`; Ecological State Toolkit owns
 only the standard layout supplied to that state, not the model, observation
