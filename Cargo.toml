@@ -1,9 +1,9 @@
 [package]
 name = "ecological-state-toolkit"
-version = "0.14.2"
+version = "0.15.0"
 edition = "2024"
 rust-version = "1.97"
-description = "End-to-end ecological state construction, schemas, observation, and analysis conversion"
+description = "Validated ecological inputs, state schemas, trajectory observation, and terminal products"
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/dingyisun0101/Ecological-Model-Core"
@@ -11,12 +11,12 @@ homepage = "https://github.com/dingyisun0101/Ecological-Model-Core"
 documentation = "https://docs.rs/ecological-state-toolkit"
 keywords = ["ecology", "simulation", "dynamical-systems", "scientific"]
 categories = ["science", "simulation"]
-include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "python/**/*.py", "python/pyproject.toml", "python/README.md", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "tests/**/*.rs", "schemas/**/*.json", "README.md", "LICENSE"]
 
 [dependencies]
 nalgebra = "0.34.1"
 physics_in_parallel = "=4.1.1-alpha"
-scientific-workflow = "0.15.5"
+scientific-workflow = "0.16.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"

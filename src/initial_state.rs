@@ -329,7 +329,7 @@ impl InitialState {
             .map(|&count| count as f64 / total)
             .collect()
     }
-    /// Encodes the complete reproducible state in eco_core's canonical JSON format.
+    /// Encodes the complete reproducible state in the toolkit's canonical JSON format.
     pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
         serde_json::to_vec(&InitialStateDocumentRef::from(self))
     }

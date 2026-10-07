@@ -1,24 +1,29 @@
 # Ecological State Toolkit
 
-> **Dependency patch 0.14.2:** consumes published PiP 4.1.1-alpha and Workflow
-> 0.15.5. Numerical algorithms and scientific behavior are unchanged. Projects
-> exchanging PiP values must use `physics_in_parallel = "=4.1.1-alpha"`.
-
-
-> **0.14 generation:** adopts Workflow 0.15 and PiP 4.1 alpha.
-> The schema-v2 tensor wire format is retained. Use the current pins above.
+> **Breaking 0.15.0 update:** adopts published Workflow 0.16.0 and supersedes
+> the toolkit 0.14 generation's Workflow 0.15 integration. Downstream crates
+> exchanging Workflow types must migrate together; no compatibility aliases
+> bridge the two Workflow generations. PiP remains pinned to 4.1.1-alpha, and
+> ecological schemas, artifact formats, and scientific algorithms are unchanged.
 
 > **Breaking 0.12 update:** `ecological-model-core` is superseded by the
 > `ecological-state-toolkit` crate and `ecological_state_toolkit` Rust
 > import. There are no compatibility aliases. The ecological schema provider
 > identity is now `ecological-state-toolkit.ecological-state.v1`.
 
-Downstream crates exchanging Workflow types must also use Workflow 0.15;
-0.14.x types are not interchangeable. Scientific schemas and algorithms are
+Downstream crates exchanging Workflow types must also use Workflow 0.16;
+0.15.x types are not interchangeable. Scientific schemas and algorithms are
 unchanged. Workflow execution requires a dashboard: run inside `screen` or
 `tmux`. Disk pauses require freeing space, then typing `resume`; NPY defaults to
 gradual automatic worker admission. Reading and constructing ecological state
 without executing a Workflow study needs no terminal.
+
+Applications using Workflow's `$npy` phase require Python 3.14+ and the
+published `scientific-workflow[npy]==0.6.0` companion in their active environment.
+Cargo does not install Python. Workflow produces NPY v3 and uses v2 reuse
+receipts/program metadata with verified task snapshots; raw recordings retain
+formats 7 and 8. Downstream analysis owns historical-result interpretation.
+This Rust toolkit has no Python companion or recording converter.
 
 An end-to-end, model-neutral Rust package for ecological state construction,
 validation, schema provision, and trajectory products. It deliberately
@@ -83,8 +88,8 @@ not construct a GLV- or Simulator-specific state around it.
 
 ```toml
 [dependencies]
-ecological-state-toolkit = "0.14.0"
-scientific-workflow = "0.15.5"
+ecological-state-toolkit = "0.15.0"
+scientific-workflow = "0.16.0"
 physics_in_parallel = "=4.1.1-alpha"
 ```
 
@@ -93,7 +98,7 @@ initial-state, interaction, trajectory, or terminal-product semantics. A model
 that needs only one small local calculation may be clearer without the extra
 dependency.
 
-When used with Scientific Workflow 0.15.0, put recipes and other resolved
+When used with Scientific Workflow 0.16.0, put recipes and other resolved
 scientific values in the model's custom `Constants` type. The registered model
 still directly owns its Workflow `SystemState`; Ecological State Toolkit owns
 only the standard layout supplied to that state, not the model, observation

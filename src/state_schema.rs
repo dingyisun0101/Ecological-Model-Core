@@ -12,6 +12,8 @@ pub const ECOLOGICAL_STATE_SCHEMA_ID: &str = "ecological-state-toolkit.ecologica
 /// execution unit returns the descriptor from
 /// `ExecutionUnit::standard_state_schema`; Workflow validates and caches it
 /// during Study preflight.
+/// The returned descriptor is a Workflow 0.16 type; receiving models must use
+/// that same dependency generation.
 pub const fn ecological_state_schema() -> StateSchemaProvider {
     StateSchemaProvider::new(
         ECOLOGICAL_STATE_SCHEMA_ID,

@@ -7,10 +7,14 @@ There is no compatibility requirement for the former
 `ecological-initial-state` crate, historical terminal-state documents, or old
 consumer recordings.
 
-The repository owns neutral ecological inputs, products, trajectory analysis,
-and generic conversion of completed ecological recordings. It does not own a
-model, a Workflow runtime, a study's recording selection policy, or
-application orchestration.
+The repository owns neutral ecological inputs, products, state schemas, and
+trajectory observation. Models and studies own execution, recording policy,
+and application orchestration.
+
+The 0.15.0 toolkit generation consumes published Workflow 0.16.0 and PiP
+4.1.1-alpha. Workflow descriptors must come from the same dependency generation
+as the receiving model. Ecological schemas, artifact formats, and algorithms
+retain their existing scientific meaning.
 
 The package and Rust library names are:
 
@@ -96,9 +100,9 @@ scalar multiplication, or matrix reduction.
 
 Recipes, rather than `Config`-named domain types, describe scientific
 construction. The public vocabulary is `InitialStateRecipe`,
-`InteractionMatrixRecipe`, policy, descriptor, and provenance. `Config`
-remains reserved for upstream configuration types such as `RngConfig` and
-`SquareLatticeConfig`.
+`InteractionMatrixRecipe`, policy, descriptor, and provenance. Geometry and RNG
+inputs use PiP's `SquareLatticeGeometry` and `ResolvedRng`; Workflow
+configuration stays at the application orchestration boundary.
 
 Specialized correlated and sign-structured ecological ensembles remain
 available and keep their explicit normalization, diagonal, reciprocal-pair,
@@ -141,9 +145,7 @@ This is a new format. No legacy parser or format alias is required.
 ```text
 Physics in Parallel ─┐
 Serde / SHA-256 ─────┼──> Rust crate ───────────────> model crates
-Scientific Workflow ┘          │
-                               │ shared ecological contracts
-Workflow Reader + NumPy ─────> Python companion ───> study adapters / analysis
+Scientific Workflow ┘
 ```
 
 The Rust crate must not depend on a downstream model, application
@@ -162,7 +164,7 @@ sweeps, path resolution, and writer settings. They translate those documents
 into the plain core recipes, observations, and artifacts defined here.
 
 The artifact, initial-state, and interaction modules use only ordinary paths,
-toolkit descriptors, and fully resolved PiP `RngConfig` values. No
+toolkit descriptors, and fully resolved PiP `ResolvedRng` values. No
 Workflow-owned type crosses their public API. The trajectory and
 terminal-state modules depend only on plain scientific values and time
 coordinates.
@@ -181,30 +183,18 @@ them in a second generic RNG record. Generator identity, version, and recipe
 remain in the toolkit's domain provenance. This is sufficient for
 deterministic replay without making the toolkit a metadata framework.
 
-## Python recording conversion
+## Recording and analysis boundary
 
-The installable `python/ecological_state_toolkit` companion is the generic
-analysis conversion boundary. It may depend on NumPy and the public Scientific
-Workflow reader because it operates after a recording is finalized; those
-dependencies do not cross into the Rust model crate.
+This repository has no Python companion, recording reader, or NPY converter.
+Workflow owns raw recording verification and current NPY conversion. A study
+selects recordings and streams through Workflow's supported dependencies and
+readers, then uses downstream scientific analysis for ecological interpretation,
+joining, and comparison.
 
-Its public request vocabulary is `RecordingSpec -> StreamSpec -> FieldSpec`.
-Fields select stable ecological encodings, never a downstream execution-unit
-name. It owns chunk verification through the official reader, bounded
-multiprocessing, shape/dtype invariants, NPY memmap allocation, atomic member
-publication, checksummed resume, descriptors, and the generic CLI request and
-manifest formats.
-
-A downstream study owns which recordings and streams to select, how a model's
-field maps to a generic ecological encoding, and all scientific joining or
-pairing metadata. It may retain the toolkit's result directly or publish a
-study-specific manifest. The toolkit must contain no Dispatcher, GLV,
-Simulator, task identity, parameter ordinal, or study-format constant.
-
-The Python CLI is a thin transport over the library. Conversion itself is not
-a Workflow execution unit: finalized-recording transformation has no evolving
-state or `step()` lifecycle. Scheduling belongs to an optional downstream
-program/task adapter, which invokes the unchanged library API.
+Workflow 0.16 produces NPY v3 and requires current v2 receipts for completed-task
+reuse. Raw recording formats remain 7 and 8. Historical result interpretation
+and explicit NPY v2/v3 compatibility belong to downstream analysis packages;
+the toolkit does not reconstruct or certify historical Workflow results.
 
 ## Trajectory observation modes
 
